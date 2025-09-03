@@ -1,8 +1,6 @@
 {
     "templateType": "pod",
     "name": "Voxtral Mini 3B Real-Time",
-    "imageName": "your-dockerhub-username/voxtral-mini-3b-realtime:latest",
-    "dockerArgs": "",
     "containerDiskInGb": 50,
     "volumeInGb": 30,
     "volumeMountPath": "/workspace",
