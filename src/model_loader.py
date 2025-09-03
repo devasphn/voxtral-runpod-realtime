@@ -1,17 +1,26 @@
 import asyncio
 import logging
+import os
 import torch
-from typing import Optional, Dict, Any, Union, List
+from typing import Optional, Dict, Any, Union, List, Tuple
 import gc
 from pathlib import Path
 import tempfile
 import io
 import wave
-from transformers import VoxtralForConditionalGeneration, AutoProcessor
-from mistral_common.audio import Audio
 import numpy as np
 import requests
 from urllib.parse import urlparse
+
+from transformers import VoxtralForConditionalGeneration, AutoProcessor
+from mistral_common.audio import Audio
+
+# Try to import pydub for better audio processing
+try:
+    from pydub import AudioSegment
+    HAS_PYDUB = True
+except ImportError:
+    HAS_PYDUB = False
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +93,26 @@ class VoxtralModelManager:
             logger.error(f"❌ Failed to load model: {e}")
             raise RuntimeError(f"Model loading failed: {e}")
     
+    def _convert_audio_format(self, input_path: str, output_path: str) -> None:
+        """Convert audio to 16kHz mono WAV format"""
+        if HAS_PYDUB:
+            # Use pydub for format conversion if available
+            audio = AudioSegment.from_file(input_path)
+            audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+            audio.export(output_path, format='wav')
+        else:
+            # Fallback to wave module (basic support)
+            try:
+                import soundfile as sf
+                data, samplerate = sf.read(input_path)
+                if len(data.shape) > 1:  # Convert to mono if stereo
+                    data = data.mean(axis=1)
+                sf.write(output_path, data, 16000, 'PCM_16')
+            except ImportError:
+                # Last resort: just copy the file
+                import shutil
+                shutil.copy2(input_path, output_path)
+
     async def _process_audio_input(self, audio_input: Union[str, bytes, io.BytesIO]) -> str:
         """Process audio input which can be a file path, URL, bytes, or BytesIO"""
         temp_path = None
@@ -92,11 +121,23 @@ class VoxtralModelManager:
                 # Handle URL or file path
                 if audio_input.startswith(('http://', 'https://')):
                     # Download from URL
-                    response = requests.get(audio_input)
+                    response = requests.get(audio_input, timeout=30)
                     response.raise_for_status()
-                    audio_path = Path(tempfile.mktemp(suffix='.wav'))
-                    with open(audio_path, 'wb') as f:
+                    temp_path = Path(tempfile.mktemp(suffix='.wav'))
+                    with open(temp_path, 'wb') as f:
                         f.write(response.content)
+                    # Convert to proper format
+                    converted_path = str(temp_path).replace('.wav', '_converted.wav')
+                    self._convert_audio_format(str(temp_path), converted_path)
+                    temp_path.unlink()  # Remove original
+                    temp_path = Path(converted_path)
+                else:
+                    # Local file path
+                    if not os.path.exists(audio_input):
+                        raise FileNotFoundError(f"Audio file not found: {audio_input}")
+                    # Convert to proper format
+                    temp_path = Path(tempfile.mktemp(suffix='.wav'))
+                    self._convert_audio_format(audio_input, str(temp_path))
                 else:
                     audio_path = Path(audio_input)
                     if not audio_path.exists():
@@ -106,44 +147,30 @@ class VoxtralModelManager:
             # Handle bytes or BytesIO
             elif isinstance(audio_input, (bytes, io.BytesIO)):
                 # Convert to bytes if it's BytesIO
-                if isinstance(audio_input, io.BytesIO):
-                    audio_bytes = audio_input.getvalue()
-                else:
-                    audio_bytes = audio_input
+                audio_bytes = audio_input.getvalue() if isinstance(audio_input, io.BytesIO) else audio_input
                 
-                # Create a temporary WAV file with proper format
+                # First save the raw bytes to a temporary file
+                temp_input = Path(tempfile.mktemp(suffix='.raw'))
+                with open(temp_input, 'wb') as f:
+                    f.write(audio_bytes)
+                
+                # Then convert to proper WAV format
                 temp_path = Path(tempfile.mktemp(suffix='.wav'))
+                self._convert_audio_format(str(temp_input), str(temp_path))
+                temp_input.unlink()  # Clean up the temporary input file
                 
-                # Try to load with pydub first to handle format conversion
-                try:
-                    from pydub import AudioSegment
-                    import io as py_io
-                    
-                    # Try to detect format from bytes
-                    audio = AudioSegment.from_file(py_io.BytesIO(audio_bytes))
-                    # Convert to required format: 16kHz, 16-bit, mono
-                    audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-                    audio.export(temp_path, format='wav')
-                    return str(temp_path)
-                except ImportError:
-                    logger.warning("pydub not installed, falling back to basic WAV handling")
-                    # Fallback to basic WAV handling if pydub is not available
-                    with wave.open(str(temp_path), 'wb') as wav_file:
-                        wav_file.setnchannels(1)      # Mono
-                        wav_file.setsampwidth(2)      # 16-bit
-                        wav_file.setframerate(16000)  # 16kHz
-                        wav_file.writeframes(audio_bytes)
-                    return str(temp_path)
+                return str(temp_path)
             
             else:
                 raise ValueError("audio_input must be a file path, URL, bytes, or BytesIO")
                 
         except Exception as e:
+            # Clean up any temporary files on error
             if temp_path and temp_path.exists():
                 try:
                     temp_path.unlink()
-                except:
-                    pass
+                except Exception as cleanup_err:
+                    logger.warning(f"Failed to clean up temp file {temp_path}: {cleanup_err}")
             raise RuntimeError(f"Error processing audio input: {str(e)}")
 
     async def transcribe_audio(
@@ -184,9 +211,13 @@ class VoxtralModelManager:
                 return_tensors="pt"
             )
             
-            # Move to device and set dtype
-            inputs = {k: v.to(device=self.device, dtype=self.torch_dtype) 
-                     for k, v in inputs.items()}
+            # Move to device with correct dtypes
+            inputs = {}
+            for k, v in inputs.items():
+                if k == 'input_ids':
+                    inputs[k] = v.to(device=self.device, dtype=torch.long)
+                else:
+                    inputs[k] = v.to(device=self.device, dtype=self.torch_dtype)
             
             # Set default generation parameters if not provided
             if 'max_new_tokens' not in generation_kwargs:
@@ -386,18 +417,26 @@ class VoxtralModelManager:
         """Clean up model resources"""
         logger.info("🧹 Cleaning up model resources...")
         
-        if self.model is not None:
-            del self.model
-            self.model = None
-        
-        if self.processor is not None:
-            del self.processor
-            self.processor = None
-        
-        # Clear GPU memory
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        
-        gc.collect()
-        self.is_loaded = False
-        logger.info("✅ Model cleanup completed")
+        try:
+            if self.model is not None:
+                if hasattr(self.model, 'cpu'):
+                    self.model.cpu()
+                del self.model
+                self.model = None
+            
+            if self.processor is not None:
+                del self.processor
+                self.processor = None
+            
+            # Clear GPU memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            
+            gc.collect()
+            self.is_loaded = False
+            logger.info("✅ Model cleanup completed")
+            
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+            raise
