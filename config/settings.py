@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # Server Configuration  
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    HEALTH_PORT: int = 8080
+    HEALTH_PORT: int = 8005
     
     # WebSocket Configuration
     WS_TRANSCRIBE_PORT: int = 8765
