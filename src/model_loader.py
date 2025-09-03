@@ -120,10 +120,11 @@ class VoxtralModelManager:
             # Convert bytes to WAV file
             temp_path = self._bytes_to_wav_file(audio_data)
             
-            # Use the processor's transcription method directly
+            # Use the processor's transcription method with model_id parameter
             inputs = self.processor.apply_transcription_request(
                 audio=temp_path,
                 language="auto",  # Auto-detect language
+                model_id=self.model_name,  # FIXED: Added required model_id parameter
                 return_tensors="pt"
             )
             
