@@ -1,14 +1,21 @@
+#!/bin/bash
+# Voxtral Mini 3B Server Startup Script - RunPod Fixed Version
+
 set -e
 
 echo "🚀 Starting Voxtral Mini 3B Real-Time Server..."
 echo "=================================================="
 
-# Set environment variables
-export PYTHONPATH="/app:${PYTHONPATH}"
+# Get current working directory (should be /workspace/voxtral-runpod-realtime)
+WORK_DIR=$(pwd)
+echo "Working Directory: $WORK_DIR"
+
+# Set environment variables relative to current directory
+export PYTHONPATH="$WORK_DIR:${PYTHONPATH}"
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
-export HF_HOME="/app/models"
-export TRANSFORMERS_CACHE="/app/models"
-export TORCH_HOME="/app/models"
+export HF_HOME="$WORK_DIR/models"
+export TRANSFORMERS_CACHE="$WORK_DIR/models"
+export TORCH_HOME="$WORK_DIR/models"
 
 # Log system information
 echo "📊 System Information:"
@@ -17,22 +24,28 @@ echo "- GPU Count: $(python -c 'import torch; print(torch.cuda.device_count() if
 echo "- GPU Name: $(python -c 'import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")')"
 echo "- Python: $(python --version)"
 echo "- PyTorch: $(python -c 'import torch; print(torch.__version__)')"
-echo "- Working Directory: $(pwd)"
+echo "- Working Directory: $WORK_DIR"
 
-# Create necessary directories
-mkdir -p /app/logs /app/temp /app/models
+# Create necessary directories relative to current path
+mkdir -p "$WORK_DIR/logs" "$WORK_DIR/temp" "$WORK_DIR/models"
+echo "✅ Created directories: logs, temp, models"
 
-# Set permissions
-chmod 755 /app/scripts/*.sh
+# Set permissions for scripts in current directory
+chmod 755 "$WORK_DIR/scripts"/*.sh
+echo "✅ Set script permissions"
 
 # Health check endpoint (background)
-echo "🔍 Starting health check server..."
+echo "🔍 Starting health check server on port 8080..."
 python -c "
 import uvicorn
 from fastapi import FastAPI
 from datetime import datetime
-import asyncio
 import torch
+import sys
+import os
+
+# Add current directory to Python path
+sys.path.insert(0, '$WORK_DIR')
 
 app = FastAPI()
 
@@ -42,28 +55,32 @@ async def health():
         'status': 'healthy',
         'timestamp': datetime.utcnow().isoformat(),
         'gpu_available': torch.cuda.is_available(),
-        'service': 'voxtral-realtime'
+        'service': 'voxtral-realtime',
+        'working_directory': '$WORK_DIR'
     }
 
 if __name__ == '__main__':
     uvicorn.run(app, host='0.0.0.0', port=8080, log_level='warning')
 " &
 
-# Wait a moment for health server to start
-sleep 2
+# Wait for health server to start
+sleep 3
+echo "✅ Health check server started"
 
 # Start main application
-echo "🎤 Starting Voxtral Real-Time Server..."
-cd /app
+echo "🎤 Starting Voxtral Real-Time Server on port 8000..."
+
+# Change to working directory and start main app
+cd "$WORK_DIR"
 
 # Run with uvicorn for production
-exec uvicorn src.main:app \\
-    --host 0.0.0.0 \\
-    --port 8000 \\
-    --workers 1 \\
-    --loop uvloop \\
-    --http h11 \\
-    --ws websockets \\
-    --log-level info \\
-    --access-log \\
+exec uvicorn src.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 1 \
+    --loop uvloop \
+    --http h11 \
+    --ws websockets \
+    --log-level info \
+    --access-log \
     --no-use-colors
