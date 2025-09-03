@@ -13,11 +13,6 @@
         "volume_disk_gb": 30
     },
     
-    "container": {
-        "image": "runpod/pytorch:2.1.1-py3.10-cuda12.1.1-devel-ubuntu22.04",
-        "dockerfile": "./Dockerfile",
-        "build_context": "."
-    },
     
     "ports": {
         "http": [
