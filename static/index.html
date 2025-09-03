@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voxtral Mini 3B - Real-Time Audio Test</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎤 Voxtral Mini 3B Real-Time Audio</h1>
+            <p>Test real-time speech transcription and understanding</p>
+        </header>
+
+        <div class="status-panel">
+            <div class="status-item">
+                <span class="label">Connection Status:</span>
+                <span id="connection-status" class="status disconnected">Disconnected</span>
+            </div>
+            <div class="status-item">
+                <span class="label">Model Status:</span>
+                <span id="model-status" class="status">Unknown</span>
+            </div>
+            <div class="status-item">
+                <span class="label">Audio Status:</span>
+                <span id="audio-status" class="status">Not Recording</span>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="service-selector">
+                <label for="service-type">Service Type:</label>
+                <select id="service-type">
+                    <option value="transcribe">Transcription</option>
+                    <option value="understand">Understanding</option>
+                </select>
+            </div>
+
+            <div class="audio-controls">
+                <button id="connect-btn" class="btn btn-primary">Connect</button>
+                <button id="record-btn" class="btn btn-secondary" disabled>Start Recording</button>
+                <button id="disconnect-btn" class="btn btn-danger" disabled>Disconnect</button>
+            </div>
+
+            <div class="query-input" id="query-section" style="display: none;">
+                <label for="text-query">Text Query (for Understanding):</label>
+                <input type="text" id="text-query" placeholder="What can you hear in this audio?" />
+            </div>
+        </div>
+
+        <div class="results-panel">
+            <div class="results-header">
+                <h3>Results</h3>
+                <button id="clear-results" class="btn btn-small">Clear</button>
+            </div>
+            <div id="results-container" class="results-container">
+                <p class="no-results">No results yet. Connect and start recording to begin.</p>
+            </div>
+        </div>
+
+        <div class="info-panel">
+            <h3>System Information</h3>
+            <div id="system-info" class="system-info">
+                <p>Loading system information...</p>
+            </div>
+        </div>
+
+        <div class="logs-panel">
+            <h3>Connection Logs</h3>
+            <div id="logs-container" class="logs-container">
+                <p class="log-entry">Ready to connect...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/websocket_client.js"></script>
+</body>
+</html>
