@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-HEALTH_URL="http://localhost:8080/health"
+HEALTH_URL="http://localhost:8005/health"
 TIMEOUT=10
 MAX_RETRIES=3
 
