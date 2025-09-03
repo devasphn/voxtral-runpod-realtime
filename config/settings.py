@@ -1,6 +1,6 @@
 import os
 from typing import Optional, List, Dict, Any
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings  # Changed from pydantic import
 import torch
 
 class Settings(BaseSettings):
