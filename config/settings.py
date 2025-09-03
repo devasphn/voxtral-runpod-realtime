@@ -4,7 +4,10 @@ from pydantic import BaseSettings
 import torch
 
 class Settings(BaseSettings):
-    """Application settings"""
+    """Application settings - RunPod Compatible"""
+    
+    # Get current working directory dynamically
+    WORK_DIR: str = os.getcwd()
     
     # Model Configuration
     MODEL_NAME: str = "mistralai/Voxtral-Mini-3B-2507"
@@ -44,11 +47,19 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    LOG_FILE: Optional[str] = "/app/logs/voxtral.log"
     
-    # Storage
-    MODEL_CACHE_DIR: str = "/app/models"
-    TEMP_DIR: str = "/app/temp"
+    # Storage - Dynamic paths based on working directory
+    @property
+    def LOG_FILE(self) -> str:
+        return os.path.join(self.WORK_DIR, "logs", "voxtral.log")
+    
+    @property 
+    def MODEL_CACHE_DIR(self) -> str:
+        return os.path.join(self.WORK_DIR, "models")
+    
+    @property
+    def TEMP_DIR(self) -> str:
+        return os.path.join(self.WORK_DIR, "temp")
     
     # RunPod Integration
     RUNPOD_POD_ID: Optional[str] = os.getenv("RUNPOD_POD_ID")
@@ -72,11 +83,14 @@ class Settings(BaseSettings):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
-        # Create directories
+        # Create directories dynamically
         os.makedirs(self.MODEL_CACHE_DIR, exist_ok=True)
         os.makedirs(self.TEMP_DIR, exist_ok=True)
-        if self.LOG_FILE:
-            os.makedirs(os.path.dirname(self.LOG_FILE), exist_ok=True)
+        os.makedirs(os.path.dirname(self.LOG_FILE), exist_ok=True)
+        
+        print(f"✅ Settings initialized with WORK_DIR: {self.WORK_DIR}")
+        print(f"✅ Model cache: {self.MODEL_CACHE_DIR}")
+        print(f"✅ Log file: {self.LOG_FILE}")
     
     @property
     def websocket_urls(self) -> Dict[str, str]:
