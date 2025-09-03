@@ -4,6 +4,7 @@ import torch
 from typing import Optional, Dict, Any, Union
 import gc
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
+from mistral_common.audio import Audio
 import numpy as np
 import io
 import base64
@@ -58,7 +59,7 @@ class VoxtralModelManager:
             self.model = VoxtralForConditionalGeneration.from_pretrained(
                 self.model_name,
                 torch_dtype=self.torch_dtype,
-                device_map="auto",  # Changed from self.device to "auto"
+                device_map="auto",
                 trust_remote_code=True,
                 low_cpu_mem_usage=True
             )
@@ -89,60 +90,51 @@ class VoxtralModelManager:
         
         try:
             # Convert bytes to proper audio format for Voxtral
-            audio_path = self._bytes_to_temp_file(audio_data)
-            if audio_path is None:
+            audio_obj = self._bytes_to_audio_object(audio_data)
+            if audio_obj is None:
                 return {"error": "Invalid audio data"}
             
-            # Create conversation with just audio for transcription
+            # Create conversation with audio for transcription
             conversation = [
                 {
                     "role": "user", 
-                    "content": [{"type": "audio", "audio": audio_path}]
+                    "content": [{"type": "audio", "audio": audio_obj}]
                 }
             ]
             
-            # Apply chat template
-            try:
-                inputs = self.processor.apply_chat_template(
-                    conversation, 
-                    return_tensors="pt"
+            # Apply chat template and get inputs
+            inputs = self.processor.apply_chat_template(
+                conversation, 
+                return_tensors="pt"
+            )
+            
+            # Move to device
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            # Generate transcription
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=500,
+                    temperature=0.0,  # Deterministic for transcription
+                    do_sample=False,
+                    pad_token_id=self.processor.tokenizer.eos_token_id
                 )
-                inputs = inputs.to(self.device)
-                
-                # Generate transcription
-                with torch.no_grad():
-                    outputs = self.model.generate(
-                        **inputs,
-                        max_new_tokens=500,
-                        temperature=0.0,  # Deterministic for transcription
-                        do_sample=False,
-                        pad_token_id=self.processor.tokenizer.eos_token_id
-                    )
-                
-                # Decode output
-                generated_tokens = outputs[0][inputs['input_ids'].shape[-1]:]
-                decoded_output = self.processor.tokenizer.decode(
-                    generated_tokens, 
-                    skip_special_tokens=True
-                )
-                
-                # Clean up temp file
-                if os.path.exists(audio_path):
-                    os.unlink(audio_path)
-                
-                return {
-                    "type": "transcription",
-                    "text": decoded_output.strip(),
-                    "language": "auto-detected",
-                    "confidence": 0.95,
-                    "timestamp": asyncio.get_event_loop().time()
-                }
-                
-            except Exception as e:
-                # Clean up temp file on error
-                if os.path.exists(audio_path):
-                    os.unlink(audio_path)
-                raise e
+            
+            # Decode output
+            generated_tokens = outputs[0][inputs['input_ids'].shape[-1]:]
+            decoded_output = self.processor.tokenizer.decode(
+                generated_tokens, 
+                skip_special_tokens=True
+            )
+            
+            return {
+                "type": "transcription",
+                "text": decoded_output.strip(),
+                "language": "auto-detected",
+                "confidence": 0.95,
+                "timestamp": asyncio.get_event_loop().time()
+            }
             
         except Exception as e:
             logger.error(f"Transcription error: {e}")
@@ -168,9 +160,9 @@ class VoxtralModelManager:
             else:
                 audio_bytes = audio_data
             
-            # Convert to temp file
-            audio_path = self._bytes_to_temp_file(audio_bytes)
-            if audio_path is None:
+            # Convert to Audio object
+            audio_obj = self._bytes_to_audio_object(audio_bytes)
+            if audio_obj is None:
                 return {"error": "Invalid audio data"}
             
             # Create conversation with audio and text
@@ -178,101 +170,109 @@ class VoxtralModelManager:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "audio", "audio": audio_path},
+                        {"type": "audio", "audio": audio_obj},
                         {"type": "text", "text": text_query}
                     ]
                 }
             ]
             
-            try:
-                # Apply chat template
-                inputs = self.processor.apply_chat_template(
-                    conversation, 
-                    return_tensors="pt"
+            # Apply chat template
+            inputs = self.processor.apply_chat_template(
+                conversation, 
+                return_tensors="pt"
+            )
+            
+            # Move to device
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            # Generate response
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=500,
+                    temperature=0.2,
+                    top_p=0.95,
+                    do_sample=True,
+                    pad_token_id=self.processor.tokenizer.eos_token_id
                 )
-                inputs = inputs.to(self.device)
-                
-                # Generate response
-                with torch.no_grad():
-                    outputs = self.model.generate(
-                        **inputs,
-                        max_new_tokens=500,
-                        temperature=0.2,
-                        top_p=0.95,
-                        do_sample=True,
-                        pad_token_id=self.processor.tokenizer.eos_token_id
-                    )
-                
-                # Decode output
-                generated_tokens = outputs[0][inputs['input_ids'].shape[-1]:]
-                decoded_output = self.processor.tokenizer.decode(
-                    generated_tokens, 
-                    skip_special_tokens=True
-                )
-                
-                # Clean up temp file
-                if os.path.exists(audio_path):
-                    os.unlink(audio_path)
-                
-                return {
-                    "type": "understanding",
-                    "response": decoded_output.strip(),
-                    "query": text_query,
-                    "timestamp": asyncio.get_event_loop().time()
-                }
-                
-            except Exception as e:
-                # Clean up temp file on error
-                if os.path.exists(audio_path):
-                    os.unlink(audio_path)
-                raise e
+            
+            # Decode output
+            generated_tokens = outputs[0][inputs['input_ids'].shape[-1]:]
+            decoded_output = self.processor.tokenizer.decode(
+                generated_tokens, 
+                skip_special_tokens=True
+            )
+            
+            return {
+                "type": "understanding",
+                "response": decoded_output.strip(),
+                "query": text_query,
+                "timestamp": asyncio.get_event_loop().time()
+            }
             
         except Exception as e:
             logger.error(f"Understanding error: {e}")
             return {"error": f"Understanding failed: {str(e)}"}
     
-    def _bytes_to_temp_file(self, audio_bytes: bytes) -> Optional[str]:
-        """Convert bytes to temporary audio file"""
+    def _bytes_to_audio_object(self, audio_bytes: bytes) -> Optional[Audio]:
+        """Convert bytes to Mistral Audio object"""
+        temp_path = None
         try:
-            # Create temporary file
+            # Create temporary WAV file
             with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
                 temp_path = temp_file.name
             
-            # Try to detect audio format and convert to WAV
-            try:
-                # First, try to detect if it's already a valid audio file
-                if audio_bytes.startswith(b'RIFF') and b'WAVE' in audio_bytes[:20]:
-                    # Already WAV format
-                    with open(temp_path, 'wb') as f:
-                        f.write(audio_bytes)
-                    return temp_path
-                
-                # Try to convert using wave module (assume raw PCM)
+            # Convert audio bytes to proper WAV format
+            self._write_wav_file(audio_bytes, temp_path)
+            
+            # Create Mistral Audio object from file
+            audio_obj = Audio.from_file(temp_path)
+            
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+            return audio_obj
+            
+        except Exception as e:
+            logger.error(f"Audio object creation error: {e}")
+            
+            # Clean up temp file on error
+            if temp_path and os.path.exists(temp_path):
                 try:
-                    # Assume 16-bit PCM, 16kHz, mono
-                    with wave.open(temp_path, 'wb') as wav_file:
-                        wav_file.setnchannels(1)  # Mono
-                        wav_file.setsampwidth(2)  # 16-bit
-                        wav_file.setframerate(16000)  # 16kHz
-                        wav_file.writeframes(audio_bytes)
-                    return temp_path
-                    
-                except Exception:
-                    # If wave fails, try as raw bytes
-                    with open(temp_path, 'wb') as f:
-                        f.write(audio_bytes)
-                    return temp_path
-                    
-            except Exception as convert_error:
-                logger.warning(f"Audio conversion warning: {convert_error}")
-                # Fallback: save raw bytes
-                with open(temp_path, 'wb') as f:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            
+            return None
+    
+    def _write_wav_file(self, audio_bytes: bytes, output_path: str):
+        """Write audio bytes to WAV file with proper format"""
+        try:
+            # Check if already WAV format
+            if audio_bytes.startswith(b'RIFF') and b'WAVE' in audio_bytes[:20]:
+                # Already WAV, just write
+                with open(output_path, 'wb') as f:
                     f.write(audio_bytes)
-                return temp_path
+                return
+            
+            # Assume raw PCM and convert to WAV
+            with wave.open(output_path, 'wb') as wav_file:
+                wav_file.setnchannels(1)      # Mono
+                wav_file.setsampwidth(2)      # 16-bit
+                wav_file.setframerate(16000)  # 16kHz
+                
+                # Ensure audio_bytes is proper length for 16-bit samples
+                if len(audio_bytes) % 2 != 0:
+                    audio_bytes = audio_bytes[:-1]  # Remove last byte if odd
+                
+                wav_file.writeframes(audio_bytes)
                 
         except Exception as e:
-            logger.error(f"Failed to create temp file: {e}")
-            return None
+            logger.error(f"WAV file creation error: {e}")
+            # Fallback: write raw bytes
+            with open(output_path, 'wb') as f:
+                f.write(audio_bytes)
     
     def _count_parameters(self) -> int:
         """Count total model parameters"""
