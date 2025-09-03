@@ -120,11 +120,11 @@ class VoxtralModelManager:
             # Convert bytes to WAV file
             temp_path = self._bytes_to_wav_file(audio_data)
             
-            # Use the processor's transcription method with model_id parameter
+            # Use the processor's transcription method with correct language code
             inputs = self.processor.apply_transcription_request(
                 audio=temp_path,
-                language="auto",  # Auto-detect language
-                model_id=self.model_name,  # FIXED: Added required model_id parameter
+                language="en",  # FIXED: Use valid language code instead of "auto"
+                model_id=self.model_name,
                 return_tensors="pt"
             )
             
@@ -156,7 +156,7 @@ class VoxtralModelManager:
             return {
                 "type": "transcription",
                 "text": decoded_output.strip(),
-                "language": "auto-detected",
+                "language": "en",
                 "confidence": 0.95,
                 "timestamp": asyncio.get_event_loop().time()
             }
