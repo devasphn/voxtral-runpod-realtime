@@ -1,0 +1,33 @@
+{
+    "templateType": "pod",
+    "name": "Voxtral Mini 3B Real-Time",
+    "imageName": "your-dockerhub-username/voxtral-mini-3b-realtime:latest",
+    "dockerArgs": "",
+    "containerDiskInGb": 50,
+    "volumeInGb": 30,
+    "volumeMountPath": "/workspace",
+    "ports": "8000/http,8080/http,8765/tcp,8766/tcp",
+    "env": [
+        {
+            "key": "CUDA_VISIBLE_DEVICES",
+            "value": "0"
+        },
+        {
+            "key": "PYTHONPATH", 
+            "value": "/app"
+        },
+        {
+            "key": "MODEL_NAME",
+            "value": "mistralai/Voxtral-Mini-3B-2507"
+        },
+        {
+            "key": "MAX_CONCURRENT_CONNECTIONS",
+            "value": "6"
+        }
+    ],
+    "startScript": "./scripts/start_server.sh",
+    "readme": "# Voxtral Mini 3B Real-Time Streaming\\n\\nReal-time audio transcription and understanding using Mistral's Voxtral Mini 3B model.\\n\\n## Features\\n- Real-time speech transcription\\n- Audio understanding with Q&A\\n- WebSocket streaming\\n- 8 language support\\n- 32K context window\\n\\n## Usage\\n1. Connect to the WebSocket endpoints\\n2. Start audio streaming\\n3. Receive real-time transcriptions/responses\\n\\n## Endpoints\\n- HTTP 8000: Main application and test interface\\n- HTTP 8080: Health check\\n- TCP 8765: WebSocket transcription\\n- TCP 8766: WebSocket understanding\\n\\n## Requirements\\n- NVIDIA A40 GPU (48GB VRAM)\\n- Container: 50GB disk\\n- Volume: 30GB storage",
+    "category": "AI/ML",
+    "isServerless": false,
+    "isPublic": true
+}
