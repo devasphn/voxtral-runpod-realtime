@@ -6,7 +6,7 @@ set -e
 echo "🚀 Starting Voxtral Mini 3B Real-Time Server..."
 echo "=================================================="
 
-# Get current working directory (should be /workspace/voxtral-runpod-realtime)
+# Get current working directory
 WORK_DIR=$(pwd)
 echo "Working Directory: $WORK_DIR"
 
@@ -34,15 +34,18 @@ echo "✅ Created directories: logs, temp, models"
 chmod 755 "$WORK_DIR/scripts"/*.sh
 echo "✅ Set script permissions"
 
-# Health check endpoint (background)
-echo "🔍 Starting health check server on port 8080..."
-python -c "
+# Check if port 8005 is available
+if netstat -tuln | grep ":8005 " > /dev/null; then
+    echo "⚠️ Port 8005 is already in use, skipping health server"
+else
+    # Health check endpoint (background) on port 8005
+    echo "🔍 Starting health check server on port 8005..."
+    python -c "
 import uvicorn
 from fastapi import FastAPI
 from datetime import datetime
 import torch
 import sys
-import os
 
 # Add current directory to Python path
 sys.path.insert(0, '$WORK_DIR')
@@ -60,12 +63,13 @@ async def health():
     }
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=8080, log_level='warning')
+    uvicorn.run(app, host='0.0.0.0', port=8005, log_level='warning')
 " &
-
-# Wait for health server to start
-sleep 3
-echo "✅ Health check server started"
+    
+    # Wait for health server to start
+    sleep 3
+    echo "✅ Health check server started on port 8005"
+fi
 
 # Start main application
 echo "🎤 Starting Voxtral Real-Time Server on port 8000..."
