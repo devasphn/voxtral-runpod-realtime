@@ -11,9 +11,9 @@ import torch
 
 from config.settings import Settings
 from config.logging_config import setup_logging
-from websocket_handler import WebSocketManager
-from model_loader import VoxtralModelManager
-from utils import get_system_info
+from src.websocket_handler import WebSocketManager  # Fixed import
+from src.model_loader import VoxtralModelManager     # Fixed import
+from src.utils import get_system_info               # Fixed import
 
 # Initialize logging
 setup_logging()
