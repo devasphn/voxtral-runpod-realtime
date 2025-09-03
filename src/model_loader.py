@@ -83,34 +83,71 @@ class VoxtralModelManager:
             logger.error(f"❌ Failed to load model: {e}")
             raise RuntimeError(f"Model loading failed: {e}")
     
-    async def _process_audio_input(self, audio_input: Union[str, bytes]) -> str:
-        """Process audio input which can be a file path, URL, or bytes"""
-        if isinstance(audio_input, str):
-            # Handle URL or file path
-            if audio_input.startswith(('http://', 'https://')):
-                # Download from URL
-                response = requests.get(audio_input)
-                response.raise_for_status()
-                audio_path = Path(tempfile.mktemp(suffix='.wav'))
-                with open(audio_path, 'wb') as f:
-                    f.write(response.content)
+    async def _process_audio_input(self, audio_input: Union[str, bytes, io.BytesIO]) -> str:
+        """Process audio input which can be a file path, URL, bytes, or BytesIO"""
+        temp_path = None
+        try:
+            if isinstance(audio_input, str):
+                # Handle URL or file path
+                if audio_input.startswith(('http://', 'https://')):
+                    # Download from URL
+                    response = requests.get(audio_input)
+                    response.raise_for_status()
+                    audio_path = Path(tempfile.mktemp(suffix='.wav'))
+                    with open(audio_path, 'wb') as f:
+                        f.write(response.content)
+                else:
+                    audio_path = Path(audio_input)
+                    if not audio_path.exists():
+                        raise FileNotFoundError(f"Audio file not found: {audio_input}")
+                return str(audio_path)
+            
+            # Handle bytes or BytesIO
+            elif isinstance(audio_input, (bytes, io.BytesIO)):
+                # Convert to bytes if it's BytesIO
+                if isinstance(audio_input, io.BytesIO):
+                    audio_bytes = audio_input.getvalue()
+                else:
+                    audio_bytes = audio_input
+                
+                # Create a temporary WAV file with proper format
+                temp_path = Path(tempfile.mktemp(suffix='.wav'))
+                
+                # Try to load with pydub first to handle format conversion
+                try:
+                    from pydub import AudioSegment
+                    import io as py_io
+                    
+                    # Try to detect format from bytes
+                    audio = AudioSegment.from_file(py_io.BytesIO(audio_bytes))
+                    # Convert to required format: 16kHz, 16-bit, mono
+                    audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+                    audio.export(temp_path, format='wav')
+                    return str(temp_path)
+                except ImportError:
+                    logger.warning("pydub not installed, falling back to basic WAV handling")
+                    # Fallback to basic WAV handling if pydub is not available
+                    with wave.open(str(temp_path), 'wb') as wav_file:
+                        wav_file.setnchannels(1)      # Mono
+                        wav_file.setsampwidth(2)      # 16-bit
+                        wav_file.setframerate(16000)  # 16kHz
+                        wav_file.writeframes(audio_bytes)
+                    return str(temp_path)
+            
             else:
-                audio_path = Path(audio_input)
-                if not audio_path.exists():
-                    raise FileNotFoundError(f"Audio file not found: {audio_input}")
-            return str(audio_path)
-        elif isinstance(audio_input, bytes):
-            # Save bytes to temp file
-            audio_path = Path(tempfile.mktemp(suffix='.wav'))
-            with open(audio_path, 'wb') as f:
-                f.write(audio_input)
-            return str(audio_path)
-        else:
-            raise ValueError("audio_input must be a file path, URL, or bytes")
+                raise ValueError("audio_input must be a file path, URL, bytes, or BytesIO")
+                
+        except Exception as e:
+            if temp_path and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except:
+                    pass
+            raise RuntimeError(f"Error processing audio input: {str(e)}")
 
     async def transcribe_audio(
         self, 
-        audio_input: Union[str, bytes], 
+        audio_input: Union[str, bytes, io.BytesIO], 
         language: str = None,
         **generation_kwargs
     ) -> Dict[str, Any]:
@@ -194,7 +231,7 @@ class VoxtralModelManager:
     
     async def understand_audio(
         self, 
-        audio_input: Union[str, bytes],
+        audio_input: Union[str, bytes, io.BytesIO],
         text_query: str = "What can you hear in this audio?",
         **generation_kwargs
     ) -> Dict[str, Any]:
