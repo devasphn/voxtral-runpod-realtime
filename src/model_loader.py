@@ -139,10 +139,10 @@ class VoxtralModelManager:
                     temp_path = Path(tempfile.mktemp(suffix='.wav'))
                     self._convert_audio_format(audio_input, str(temp_path))
             else:
-                    audio_path = Path(audio_input)
-                    if not audio_path.exists():
-                        raise FileNotFoundError(f"Audio file not found: {audio_input}")
-                return str(audio_path)
+                audio_path = Path(audio_input)
+                if not audio_path.exists():
+                    raise FileNotFoundError(f"Audio file not found: {audio_input}")
+            return str(audio_path)
             
             # Handle bytes or BytesIO
             elif isinstance(audio_input, (bytes, io.BytesIO)):
