@@ -5,7 +5,8 @@ from typing import Optional, Dict, Any, Union, List
 import gc
 from pathlib import Path
 import tempfile
-
+import io
+import wave
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
 from mistral_common.audio import Audio
 import numpy as np
