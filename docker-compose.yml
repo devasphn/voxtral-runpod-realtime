@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  voxtral-realtime:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: voxtral-mini-3b
+    
+    ports:
+      - "8000:8000"    # FastAPI Main App
+      - "8080:8080"    # Health Check
+      - "8765:8765"    # WebSocket Transcription
+      - "8766:8766"    # WebSocket Understanding
+    
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONPATH=/app
+      - HF_HOME=/app/models
+      - TRANSFORMERS_CACHE=/app/models
+      - TORCH_HOME=/app/models
+      - LOG_LEVEL=INFO
+      - MAX_CONCURRENT_CONNECTIONS=6
+      - MODEL_NAME=mistralai/Voxtral-Mini-3B-2507
+      - PRELOAD_MODEL=false
+    
+    volumes:
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+    
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    networks:
+      - voxtral-network
+
+networks:
+  voxtral-network:
+    driver: bridge
+
+volumes:
+  models:
+    driver: local
+  logs:
+    driver: local
+  temp:
+    driver: local
