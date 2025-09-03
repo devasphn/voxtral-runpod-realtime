@@ -1,16 +1,16 @@
 import asyncio
 import logging
 import torch
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, List
 import gc
+from pathlib import Path
+import tempfile
+
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
 from mistral_common.audio import Audio
 import numpy as np
-import io
-import base64
-import tempfile
-import os
-import wave
+import requests
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -83,22 +83,60 @@ class VoxtralModelManager:
             logger.error(f"❌ Failed to load model: {e}")
             raise RuntimeError(f"Model loading failed: {e}")
     
-    async def transcribe_audio(self, audio_data: bytes) -> Dict[str, Any]:
-        """Transcribe audio data to text"""
+    async def _process_audio_input(self, audio_input: Union[str, bytes]) -> str:
+        """Process audio input which can be a file path, URL, or bytes"""
+        if isinstance(audio_input, str):
+            # Handle URL or file path
+            if audio_input.startswith(('http://', 'https://')):
+                # Download from URL
+                response = requests.get(audio_input)
+                response.raise_for_status()
+                audio_path = Path(tempfile.mktemp(suffix='.wav'))
+                with open(audio_path, 'wb') as f:
+                    f.write(response.content)
+            else:
+                audio_path = Path(audio_input)
+                if not audio_path.exists():
+                    raise FileNotFoundError(f"Audio file not found: {audio_input}")
+            return str(audio_path)
+        elif isinstance(audio_input, bytes):
+            # Save bytes to temp file
+            audio_path = Path(tempfile.mktemp(suffix='.wav'))
+            with open(audio_path, 'wb') as f:
+                f.write(audio_input)
+            return str(audio_path)
+        else:
+            raise ValueError("audio_input must be a file path, URL, or bytes")
+
+    async def transcribe_audio(
+        self, 
+        audio_input: Union[str, bytes], 
+        language: str = None,
+        **generation_kwargs
+    ) -> Dict[str, Any]:
+        """
+        Transcribe audio to text
+        
+        Args:
+            audio_input: Can be a file path, URL, or raw bytes of the audio
+            language: Optional language code (e.g., 'en', 'es', 'fr')
+            **generation_kwargs: Additional generation parameters
+        
+        Returns:
+            Dict containing transcription and metadata
+        """
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
         try:
-            # Convert bytes to proper audio format for Voxtral
-            audio_obj = self._bytes_to_audio_object(audio_data)
-            if audio_obj is None:
-                return {"error": "Invalid audio data"}
+            # Process audio input (download if URL, save bytes to temp file if needed)
+            audio_path = await self._process_audio_input(audio_input)
             
             # Create conversation with audio for transcription
             conversation = [
                 {
                     "role": "user", 
-                    "content": [{"type": "audio", "audio": audio_obj}]
+                    "content": [{"type": "audio", "path": audio_path}]
                 }
             ]
             
@@ -108,17 +146,25 @@ class VoxtralModelManager:
                 return_tensors="pt"
             )
             
-            # Move to device
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            # Move to device and set dtype
+            inputs = {k: v.to(device=self.device, dtype=self.torch_dtype) 
+                     for k, v in inputs.items()}
+            
+            # Set default generation parameters if not provided
+            if 'max_new_tokens' not in generation_kwargs:
+                generation_kwargs['max_new_tokens'] = 1000
+            if 'temperature' not in generation_kwargs:
+                generation_kwargs['temperature'] = 0.0  # Deterministic for transcription
+            if 'do_sample' not in generation_kwargs:
+                generation_kwargs['do_sample'] = False
+            if 'pad_token_id' not in generation_kwargs:
+                generation_kwargs['pad_token_id'] = self.processor.tokenizer.eos_token_id
             
             # Generate transcription
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=500,
-                    temperature=0.0,  # Deterministic for transcription
-                    do_sample=False,
-                    pad_token_id=self.processor.tokenizer.eos_token_id
+                    **generation_kwargs
                 )
             
             # Decode output
@@ -128,11 +174,17 @@ class VoxtralModelManager:
                 skip_special_tokens=True
             )
             
+            # Clean up temp file if we created one
+            if isinstance(audio_input, bytes) or (isinstance(audio_input, str) and audio_input.startswith(('http://', 'https://'))):
+                try:
+                    Path(audio_path).unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp file {audio_path}: {e}")
+            
             return {
                 "type": "transcription",
                 "text": decoded_output.strip(),
-                "language": "auto-detected",
-                "confidence": 0.95,
+                "language": language or "auto-detected",
                 "timestamp": asyncio.get_event_loop().time()
             }
             
@@ -140,37 +192,36 @@ class VoxtralModelManager:
             logger.error(f"Transcription error: {e}")
             return {"error": f"Transcription failed: {str(e)}"}
     
-    async def understand_audio(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Process audio with understanding capabilities"""
+    async def understand_audio(
+        self, 
+        audio_input: Union[str, bytes],
+        text_query: str = "What can you hear in this audio?",
+        **generation_kwargs
+    ) -> Dict[str, Any]:
+        """
+        Process audio with understanding capabilities
+        
+        Args:
+            audio_input: Can be a file path, URL, or raw bytes of the audio
+            text_query: The question or instruction about the audio
+            **generation_kwargs: Additional generation parameters
+            
+        Returns:
+            Dict containing the model's response and metadata
+        """
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
         try:
-            # Extract audio and text query
-            audio_data = message.get("audio")
-            text_query = message.get("text", "What can you hear in this audio?")
-            
-            if not audio_data:
-                return {"error": "No audio data provided"}
-            
-            # Convert audio data
-            if isinstance(audio_data, str):
-                # Base64 encoded audio
-                audio_bytes = base64.b64decode(audio_data)
-            else:
-                audio_bytes = audio_data
-            
-            # Convert to Audio object
-            audio_obj = self._bytes_to_audio_object(audio_bytes)
-            if audio_obj is None:
-                return {"error": "Invalid audio data"}
+            # Process audio input (download if URL, save bytes to temp file if needed)
+            audio_path = await self._process_audio_input(audio_input)
             
             # Create conversation with audio and text
             conversation = [
                 {
                     "role": "user",
                     "content": [
-                        {"type": "audio", "audio": audio_obj},
+                        {"type": "audio", "path": audio_path},
                         {"type": "text", "text": text_query}
                     ]
                 }
@@ -182,18 +233,27 @@ class VoxtralModelManager:
                 return_tensors="pt"
             )
             
-            # Move to device
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            # Move to device and set dtype
+            inputs = {k: v.to(device=self.device, dtype=self.torch_dtype) 
+                     for k, v in inputs.items()}
+            
+            # Set default generation parameters if not provided
+            if 'max_new_tokens' not in generation_kwargs:
+                generation_kwargs['max_new_tokens'] = 1000
+            if 'temperature' not in generation_kwargs:
+                generation_kwargs['temperature'] = 0.2
+            if 'top_p' not in generation_kwargs:
+                generation_kwargs['top_p'] = 0.95
+            if 'do_sample' not in generation_kwargs:
+                generation_kwargs['do_sample'] = True
+            if 'pad_token_id' not in generation_kwargs:
+                generation_kwargs['pad_token_id'] = self.processor.tokenizer.eos_token_id
             
             # Generate response
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=500,
-                    temperature=0.2,
-                    top_p=0.95,
-                    do_sample=True,
-                    pad_token_id=self.processor.tokenizer.eos_token_id
+                    **generation_kwargs
                 )
             
             # Decode output
@@ -203,32 +263,22 @@ class VoxtralModelManager:
                 skip_special_tokens=True
             )
             
+            # Clean up temp file if we created one
+            if isinstance(audio_input, bytes) or (isinstance(audio_input, str) and audio_input.startswith(('http://', 'https://'))):
+                try:
+                    Path(audio_path).unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp file {audio_path}: {e}")
+            
             return {
                 "type": "understanding",
-                "response": decoded_output.strip(),
-                "query": text_query,
+                "text": decoded_output.strip(),
                 "timestamp": asyncio.get_event_loop().time()
             }
             
         except Exception as e:
-            logger.error(f"Understanding error: {e}")
-            return {"error": f"Understanding failed: {str(e)}"}
-    
-    def _bytes_to_audio_object(self, audio_bytes: bytes) -> Optional[Audio]:
-        """Convert bytes to Mistral Audio object"""
-        temp_path = None
-        try:
-            # Create temporary WAV file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
-                temp_path = temp_file.name
-            
-            # Convert audio bytes to proper WAV format
-            self._write_wav_file(audio_bytes, temp_path)
-            
-            # Create Mistral Audio object from file
-            audio_obj = Audio.from_file(temp_path)
-            
-            # Clean up temp file
+            logger.error(f"Audio understanding error: {e}", exc_info=True)
+            return {"error": f"Audio understanding failed: {str(e)}"}
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
             
