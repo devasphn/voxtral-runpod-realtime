@@ -1,0 +1,110 @@
+{
+    "name": "voxtral-mini-3b-realtime",
+    "description": "Voxtral Mini 3B Real-Time Audio Streaming on RunPod",
+    "version": "1.0.0",
+    
+    "hardware": {
+        "gpu_type": "NVIDIA A40",
+        "gpu_count": 1,
+        "vram_gb": 48,
+        "cpu_cores": 8,
+        "memory_gb": 32,
+        "container_disk_gb": 50,
+        "volume_disk_gb": 30
+    },
+    
+    "container": {
+        "image": "runpod/pytorch:2.1.1-py3.10-cuda12.1.1-devel-ubuntu22.04",
+        "dockerfile": "./Dockerfile",
+        "build_context": "."
+    },
+    
+    "ports": {
+        "http": [
+            {
+                "internal": 8000,
+                "description": "FastAPI Main Application"
+            },
+            {
+                "internal": 8080,
+                "description": "Health Check Endpoint"
+            }
+        ],
+        "tcp": [
+            {
+                "internal": 8765,
+                "description": "WebSocket Transcription Service"
+            },
+            {
+                "internal": 8766,
+                "description": "WebSocket Understanding Service"
+            }
+        ]
+    },
+    
+    "environment": {
+        "CUDA_VISIBLE_DEVICES": "0",
+        "PYTHONPATH": "/app",
+        "HF_HOME": "/app/models",
+        "TRANSFORMERS_CACHE": "/app/models",
+        "TORCH_HOME": "/app/models",
+        "LOG_LEVEL": "INFO",
+        "MAX_CONCURRENT_CONNECTIONS": "6",
+        "MODEL_NAME": "mistralai/Voxtral-Mini-3B-2507",
+        "PRELOAD_MODEL": "false"
+    },
+    
+    "volumes": {
+        "workspace": {
+            "mount_path": "/workspace",
+            "size_gb": 30
+        },
+        "models": {
+            "mount_path": "/app/models",
+            "size_gb": 20
+        }
+    },
+    
+    "startup_commands": [
+        "chmod +x /app/scripts/*.sh",
+        "./scripts/install_dependencies.sh",
+        "./scripts/start_server.sh"
+    ],
+    
+    "health_check": {
+        "endpoint": "http://localhost:8080/health",
+        "interval_seconds": 30,
+        "timeout_seconds": 10,
+        "retries": 3
+    },
+    
+    "monitoring": {
+        "metrics_enabled": true,
+        "log_level": "INFO",
+        "performance_tracking": true
+    },
+    
+    "scaling": {
+        "min_instances": 1,
+        "max_instances": 3,
+        "scale_up_threshold": 0.8,
+        "scale_down_threshold": 0.3
+    },
+    
+    "security": {
+        "cors_enabled": true,
+        "rate_limiting": {
+            "requests_per_minute": 100,
+            "concurrent_connections": 6
+        }
+    },
+    
+    "deployment_notes": [
+        "Ensure A40 GPU is available for optimal performance",
+        "Model requires ~9.5GB VRAM, leaving 38.5GB for processing",
+        "WebSocket connections use TCP ports for real-time streaming",
+        "Volume storage recommended for model caching",
+        "Health check endpoint available at port 8080",
+        "Test interface available at main HTTP port 8000"
+    ]
+}
