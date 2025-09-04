@@ -1,4 +1,4 @@
-# PERFECT MAIN.PY - UNIFIED APPROACH WITH BULLETPROOF ERROR HANDLING
+# FIXED MAIN.PY - UNIFIED APPROACH WITH BULLETPROOF ERROR HANDLING
 import asyncio
 import logging
 from contextlib import asynccontextmanager
@@ -15,11 +15,9 @@ import torch
 from config.settings import Settings
 from config.logging_config import setup_logging
 from src.websocket_handler import WebSocketManager
+from src.model_loader import VoxtralModelManager
+from src.audio_processor import AudioProcessor
 from src.utils import get_system_info
-
-# Import our PERFECT unified components
-from perfect_model_loader import PerfectVoxtralModelManager
-from fixed_audio_processor import UnifiedAudioProcessor
 
 # Initialize logging
 setup_logging()
@@ -31,7 +29,7 @@ settings = Settings()
 # Global model manager and audio processor
 model_manager = None
 ws_manager = WebSocketManager()
-audio_processor = UnifiedAudioProcessor(
+audio_processor = AudioProcessor(
     sample_rate=16000,
     channels=1,
     chunk_duration_ms=30
@@ -43,11 +41,11 @@ async def lifespan(app: FastAPI):
     global model_manager
     
     # Startup
-    logger.info("🚀 Starting PERFECT Voxtral Real-Time Server...")
+    logger.info("🚀 Starting UNIFIED Voxtral Real-Time Server...")
     
     # Initialize model
     try:
-        model_manager = PerfectVoxtralModelManager(
+        model_manager = VoxtralModelManager(
             model_name=settings.MODEL_NAME,
             device=settings.DEVICE,
             torch_dtype=settings.TORCH_DTYPE
@@ -68,8 +66,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="Voxtral Mini 3B - PERFECT Real-Time API",
-    description="PERFECT UNIFIED: Transcription & Understanding with bulletproof WebSocket handling",
+    title="Voxtral Mini 3B - UNIFIED Real-Time API",
+    description="UNIFIED: Transcription & Understanding with bulletproof WebSocket handling",
     version="3.0.0",
     lifespan=lifespan
 )
@@ -137,7 +135,7 @@ async def model_info():
 
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
-    """TRANSCRIPTION MODE: Speech -> Text (ASR only) - PERFECT unified processing"""
+    """TRANSCRIPTION MODE: Speech -> Text (ASR only) - UNIFIED processing"""
     await ws_manager.connect(websocket, "transcribe")
     
     try:
@@ -198,7 +196,7 @@ async def websocket_transcribe(websocket: WebSocket):
 
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
-    """UNDERSTANDING MODE: Speech -> Intelligent Response (ASR + LLM) - PERFECT unified processing"""
+    """UNDERSTANDING MODE: Speech -> Intelligent Response (ASR + LLM) - UNIFIED processing"""
     await ws_manager.connect(websocket, "understand")
     
     try:
