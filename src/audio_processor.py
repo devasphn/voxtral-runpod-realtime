@@ -1,4 +1,4 @@
-# FINAL COMPLETE FIX - audio_processor.py - ENHANCED FOR HUMAN SPEECH
+# CONTINUOUS STREAMING AUDIO PROCESSOR - audio_processor.py - WITH 300MS GAP DETECTION
 import asyncio
 import logging
 import numpy as np
@@ -18,7 +18,7 @@ import time
 logger = logging.getLogger(__name__)
 
 class FixedAudioProcessor:
-    """FINAL FIXED: Audio processor optimized for human speech recognition"""
+    """CONTINUOUS STREAMING: Audio processor with 300ms gap detection for understanding mode"""
     
     def __init__(
         self,
@@ -32,72 +32,88 @@ class FixedAudioProcessor:
         self.chunk_duration_ms = chunk_duration_ms
         self.conversation_manager = conversation_manager
         
-        # FINAL FIX: Enhanced FFmpeg processes for better speech processing
+        # CONTINUOUS STREAMING: Enhanced FFmpeg processes
         self.transcribe_ffmpeg_process = None
         self.understand_ffmpeg_process = None
         
-        # FINAL FIX: PCM buffers with enhanced management for speech
+        # CONTINUOUS STREAMING: PCM buffers for both modes
         self.transcribe_pcm_buffer = bytearray()
         self.understand_pcm_buffer = bytearray()
         
-        # FINAL FIX: Optimized processing thresholds for human speech
-        self.transcribe_threshold = int(sample_rate * 2.0 * 2)  # 2 seconds for better speech quality
-        self.understand_threshold = int(sample_rate * 3.0 * 2)  # 3 seconds for understanding
+        # CONTINUOUS STREAMING: Processing thresholds
+        self.transcribe_threshold = int(sample_rate * 2.0 * 2)  # 2 seconds for transcription
+        self.understand_threshold = int(sample_rate * 1.0 * 2)  # 1 second for understanding (faster)
         
-        # FINAL FIX: Enhanced Voice Activity Detection for human speech
+        # CONTINUOUS STREAMING: Enhanced Voice Activity Detection for 300ms gap detection
         try:
-            self.vad = webrtcvad.Vad(0)  # Least aggressive for human speech
+            self.vad = webrtcvad.Vad(1)  # Mode 1 - balanced for gap detection
             self.vad_enabled = True
-            logger.info("✅ Enhanced WebRTC VAD initialized for human speech (mode 0)")
+            logger.info("✅ CONTINUOUS STREAMING WebRTC VAD initialized (mode 1 for gap detection)")
         except:
             self.vad = None
             self.vad_enabled = False
             logger.warning("⚠️ WebRTC VAD not available")
         
-        # Statistics
+        # CONTINUOUS STREAMING: Gap detection parameters
+        self.gap_threshold_ms = 300  # 300ms silence gap
+        self.min_speech_duration_ms = 500  # Minimum 500ms for processing
+        self.frame_size_ms = 10  # 10ms frames for VAD
+        self.frame_size_samples = int(sample_rate * self.frame_size_ms / 1000)
+        
+        # Statistics and state
         self.chunks_processed = 0
         self.total_audio_length = 0
         self.speech_chunks_detected = 0
         self.processing_times = collections.deque(maxlen=100)
         
-        # FINAL FIX: ThreadPoolExecutor for enhanced processing
-        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="SpeechProc")
+        # CONTINUOUS STREAMING: Enhanced ThreadPoolExecutor
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ContStream")
         
         # Connection tracking
         self.active_connections = set()
         self.last_activity = {}
         
-        # FINAL FIX: Optimized audio quality control for human speech
-        self.min_speech_duration = 1.0  # Minimum 1 second for good speech recognition
-        self.speech_threshold = 0.3     # Lower threshold for human speech detection
+        # CONTINUOUS STREAMING: Gap detection state per connection
+        self.gap_detection_state = {}
         
-        logger.info(f"✅ FINAL FIXED AudioProcessor for Human Speech: {sample_rate}Hz, {channels}ch, VAD: {self.vad_enabled}")
-        logger.info(f"   Transcribe threshold: {self.transcribe_threshold} bytes ({self.transcribe_threshold/(sample_rate*2):.1f}s)")
-        logger.info(f"   Understand threshold: {self.understand_threshold} bytes ({self.understand_threshold/(sample_rate*2):.1f}s)")
+        logger.info(f"✅ CONTINUOUS STREAMING AudioProcessor: {sample_rate}Hz, {channels}ch")
+        logger.info(f"   Gap threshold: {self.gap_threshold_ms}ms")
+        logger.info(f"   Min speech: {self.min_speech_duration_ms}ms") 
+        logger.info(f"   Frame size: {self.frame_size_ms}ms ({self.frame_size_samples} samples)")
     
     async def start_ffmpeg_decoder(self, mode: str, websocket=None):
-        """FINAL FIX: Start FFmpeg decoder optimized for human speech"""
+        """CONTINUOUS STREAMING: Start robust FFmpeg decoder"""
         try:
             # Track connection
             if websocket:
                 conn_id = id(websocket)
                 self.active_connections.add(conn_id)
                 self.last_activity[conn_id] = time.time()
+                
+                # Initialize gap detection state for understanding mode
+                if mode == "understand":
+                    self.gap_detection_state[conn_id] = {
+                        "last_speech_time": time.time(),
+                        "accumulated_frames": [],
+                        "silence_frames": 0,
+                        "speech_frames": 0,
+                        "total_frames": 0
+                    }
             
-            # FINAL FIX: Enhanced FFmpeg configuration optimized for human speech
+            # CONTINUOUS STREAMING: Robust FFmpeg configuration
             ffmpeg_process = (
                 ffmpeg
-                .input('pipe:0', format='webm', thread_queue_size=2048)
-                .filter('highpass', f=80)  # Remove low-frequency noise
-                .filter('lowpass', f=8000)  # Remove high-frequency noise above speech range
+                .input('pipe:0', format='webm', thread_queue_size=4096)
+                .filter('highpass', f=80)  # Remove low frequency noise
+                .filter('lowpass', f=8000)  # Remove high frequency noise
                 .output(
                     'pipe:1', 
                     format='s16le', 
                     acodec='pcm_s16le', 
                     ac=self.channels, 
                     ar=str(self.sample_rate),
-                    audio_bitrate='192k',  # Higher quality for speech
-                    bufsize='2048k'
+                    audio_bitrate='256k',  # Higher quality
+                    bufsize='4096k'       # Larger buffer
                 )
                 .run_async(
                     pipe_stdin=True, 
@@ -110,19 +126,26 @@ class FixedAudioProcessor:
             
             if mode == "transcribe":
                 self.transcribe_ffmpeg_process = ffmpeg_process
-                asyncio.create_task(self._read_pcm_output_enhanced(mode, websocket))
-                logger.info("✅ FINAL FIXED FFmpeg speech transcription decoder started")
+                asyncio.create_task(self._read_pcm_output_continuous(mode, websocket))
+                logger.info("✅ CONTINUOUS STREAMING FFmpeg transcription decoder started")
             else:
                 self.understand_ffmpeg_process = ffmpeg_process
-                asyncio.create_task(self._read_pcm_output_enhanced(mode, websocket))
-                logger.info("✅ FINAL FIXED FFmpeg speech understanding decoder started")
+                asyncio.create_task(self._read_pcm_output_continuous(mode, websocket))
+                logger.info("✅ CONTINUOUS STREAMING FFmpeg understanding decoder started")
                 
         except Exception as e:
-            logger.error(f"Failed to start FINAL FIXED FFmpeg speech decoder for {mode}: {e}")
-            raise RuntimeError(f"FINAL FIXED FFmpeg speech {mode} initialization failed: {e}")
+            logger.error(f"Failed to start CONTINUOUS STREAMING FFmpeg decoder for {mode}: {e}")
+            # Auto-restart attempt
+            await asyncio.sleep(1.0)
+            try:
+                await self.start_ffmpeg_decoder(mode, websocket)
+                logger.info(f"✅ CONTINUOUS STREAMING FFmpeg {mode} auto-restarted")
+            except Exception as restart_error:
+                logger.error(f"CONTINUOUS STREAMING FFmpeg {mode} restart failed: {restart_error}")
+                raise RuntimeError(f"CONTINUOUS STREAMING FFmpeg {mode} failed: {e}")
     
-    async def _read_pcm_output_enhanced(self, mode: str, websocket=None):
-        """FINAL FIX: Enhanced PCM reader optimized for human speech"""
+    async def _read_pcm_output_continuous(self, mode: str, websocket=None):
+        """CONTINUOUS STREAMING: Enhanced PCM reader with robust error handling"""
         loop = asyncio.get_event_loop()
         conn_id = id(websocket) if websocket else None
         
@@ -137,34 +160,34 @@ class FixedAudioProcessor:
         )
         
         consecutive_errors = 0
-        max_errors = 3  # Reduced for faster error detection
+        max_errors = 10  # Increased tolerance
         
         try:
             while ffmpeg_process and ffmpeg_process.stdout:
                 try:
-                    # FINAL FIX: Read larger chunks for better speech processing
+                    # CONTINUOUS STREAMING: Read larger chunks for better performance
                     chunk = await asyncio.wait_for(
                         loop.run_in_executor(
                             self.executor, 
                             ffmpeg_process.stdout.read, 
-                            16384  # Larger chunks for speech
+                            32768  # 32KB chunks for continuous streaming
                         ),
-                        timeout=3.0  # Faster timeout for speech
+                        timeout=5.0  # Longer timeout for stability
                     )
                     
                     if not chunk:
-                        logger.warning(f"FINAL FIXED FFmpeg speech {mode} stdout closed")
+                        logger.warning(f"CONTINUOUS STREAMING FFmpeg {mode} stdout closed")
                         break
                     
                     # Add to PCM buffer
                     pcm_buffer.extend(chunk)
                     
-                    # FINAL FIX: Enhanced buffer size management for speech (30 seconds max)
-                    max_buffer_size = int(self.sample_rate * 30 * 2)  # 30 seconds for speech
+                    # CONTINUOUS STREAMING: Manage buffer size (60 seconds max)
+                    max_buffer_size = int(self.sample_rate * 60 * 2)  # 60 seconds
                     if len(pcm_buffer) > max_buffer_size:
                         excess = len(pcm_buffer) - max_buffer_size
                         del pcm_buffer[:excess]
-                        logger.debug(f"Trimmed {mode} speech buffer by {excess} bytes")
+                        logger.debug(f"Trimmed {mode} buffer by {excess} bytes")
                     
                     # Update activity
                     if conn_id:
@@ -173,72 +196,142 @@ class FixedAudioProcessor:
                     consecutive_errors = 0  # Reset on success
                     
                 except asyncio.TimeoutError:
-                    logger.debug(f"FINAL FIXED FFmpeg speech {mode} read timeout")
+                    logger.debug(f"CONTINUOUS STREAMING FFmpeg {mode} read timeout")
                     consecutive_errors += 1
                 except Exception as e:
-                    logger.error(f"Error reading FINAL FIXED FFmpeg speech {mode} output: {e}")
+                    logger.error(f"Error reading CONTINUOUS STREAMING FFmpeg {mode} output: {e}")
                     consecutive_errors += 1
                 
                 if consecutive_errors >= max_errors:
-                    logger.error(f"Too many consecutive errors in speech {mode}, stopping")
-                    break
+                    logger.error(f"Too many consecutive errors in {mode}, attempting restart...")
+                    await self._restart_ffmpeg_process(mode, websocket)
+                    consecutive_errors = 0
                     
         except Exception as e:
-            logger.error(f"FINAL FIXED speech PCM reader failed for {mode}: {e}")
+            logger.error(f"CONTINUOUS STREAMING PCM reader failed for {mode}: {e}")
         finally:
             # Cleanup
             if conn_id and conn_id in self.active_connections:
                 self.active_connections.discard(conn_id)
                 self.last_activity.pop(conn_id, None)
+                if mode == "understand":
+                    self.gap_detection_state.pop(conn_id, None)
     
     async def process_webm_chunk_transcribe(self, webm_data: bytes, websocket=None) -> Optional[Dict[str, Any]]:
-        """FINAL FIX: Enhanced transcription processing optimized for human speech"""
+        """CONTINUOUS STREAMING: Transcription processing (unchanged from original)"""
         start_time = time.time()
         
         try:
-            # FINAL FIX: Better input validation for speech
-            if not webm_data or len(webm_data) < 500:  # Minimum for speech data
-                logger.debug("Insufficient WebM speech data")
+            if not webm_data or len(webm_data) < 500:
+                logger.debug("Insufficient WebM data for transcription")
                 return None
             
             if not self.transcribe_ffmpeg_process:
                 await self.start_ffmpeg_decoder("transcribe", websocket)
             
-            # FINAL FIX: Send to FFmpeg with enhanced error handling for speech
+            # CONTINUOUS STREAMING: Send to FFmpeg with enhanced error handling
             if self.transcribe_ffmpeg_process and self.transcribe_ffmpeg_process.stdin:
                 try:
                     self.transcribe_ffmpeg_process.stdin.write(webm_data)
                     self.transcribe_ffmpeg_process.stdin.flush()
                     
-                    # FINAL FIX: Optimal processing delay for speech
                     await asyncio.sleep(0.05)
                     
                     self.chunks_processed += 1
                     
-                    # FINAL FIX: Process when we have sufficient speech audio
+                    # Process when we have sufficient audio
                     if len(self.transcribe_pcm_buffer) >= self.transcribe_threshold:
-                        result = self._process_pcm_buffer_enhanced("transcribe", websocket)
+                        result = self._process_pcm_buffer_continuous("transcribe", websocket)
                         
-                        # Record processing time
                         processing_time = time.time() - start_time
                         self.processing_times.append(processing_time)
                         
                         return result
                         
                 except BrokenPipeError:
-                    logger.warning("FFmpeg speech transcription pipe broken, restarting...")
+                    logger.warning("FFmpeg transcription pipe broken, restarting...")
                     await self._restart_ffmpeg_process("transcribe", websocket)
                 except Exception as e:
-                    logger.error(f"Error in FINAL FIXED speech transcription processing: {e}")
+                    logger.error(f"Error in CONTINUOUS STREAMING transcription processing: {e}")
             
             return None
             
         except Exception as e:
-            logger.error(f"FINAL FIXED speech transcription error: {e}")
-            return {"error": f"FINAL FIXED speech processing failed: {str(e)}"}
+            logger.error(f"CONTINUOUS STREAMING transcription error: {e}")
+            return {"error": f"CONTINUOUS STREAMING transcription failed: {str(e)}"}
     
-    def _process_pcm_buffer_enhanced(self, mode: str, websocket=None) -> Dict[str, Any]:
-        """FINAL FIX: Enhanced PCM buffer processing optimized for human speech"""
+    async def process_webm_chunk_understand(self, webm_data: bytes, websocket=None) -> Optional[Dict[str, Any]]:
+        """CONTINUOUS STREAMING: Understanding mode - accumulate PCM with gap detection"""
+        try:
+            if not webm_data or len(webm_data) < 500:
+                return None
+            
+            if not self.understand_ffmpeg_process:
+                await self.start_ffmpeg_decoder("understand", websocket)
+            
+            # Send to FFmpeg for PCM conversion
+            if self.understand_ffmpeg_process and self.understand_ffmpeg_process.stdin:
+                try:
+                    self.understand_ffmpeg_process.stdin.write(webm_data)
+                    self.understand_ffmpeg_process.stdin.flush()
+                    
+                    await asyncio.sleep(0.02)  # Shorter delay for faster accumulation
+                    
+                    # Get PCM data from buffer
+                    if len(self.understand_pcm_buffer) >= self.frame_size_samples * 2:
+                        pcm_chunk = bytes(self.understand_pcm_buffer[:self.frame_size_samples * 2])
+                        del self.understand_pcm_buffer[:self.frame_size_samples * 2]
+                        
+                        # Detect speech in this frame
+                        speech_detected = self._detect_speech_in_frame(pcm_chunk)
+                        
+                        return {
+                            "pcm_data": pcm_chunk,
+                            "speech_detected": speech_detected,
+                            "frame_size": len(pcm_chunk),
+                            "continuous_streaming": True
+                        }
+                        
+                except BrokenPipeError:
+                    logger.warning("FFmpeg understanding pipe broken, restarting...")
+                    await self._restart_ffmpeg_process("understand", websocket)
+                except Exception as e:
+                    logger.error(f"Error in CONTINUOUS STREAMING understanding processing: {e}")
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"CONTINUOUS STREAMING understanding error: {e}")
+            return {"error": f"CONTINUOUS STREAMING understanding failed: {str(e)}"}
+    
+    def _detect_speech_in_frame(self, pcm_frame: bytes) -> bool:
+        """CONTINUOUS STREAMING: Detect speech in a single PCM frame"""
+        try:
+            if not self.vad_enabled or len(pcm_frame) < self.frame_size_samples * 2:
+                return False
+            
+            # Ensure frame is exactly the right size
+            expected_size = self.frame_size_samples * 2
+            if len(pcm_frame) != expected_size:
+                # Pad or truncate to expected size
+                if len(pcm_frame) < expected_size:
+                    pcm_frame = pcm_frame + b'\x00' * (expected_size - len(pcm_frame))
+                else:
+                    pcm_frame = pcm_frame[:expected_size]
+            
+            # Use WebRTC VAD to detect speech
+            try:
+                return self.vad.is_speech(pcm_frame, self.sample_rate)
+            except Exception as vad_error:
+                logger.debug(f"VAD error: {vad_error}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Speech detection error: {e}")
+            return False
+    
+    def _process_pcm_buffer_continuous(self, mode: str, websocket=None) -> Dict[str, Any]:
+        """CONTINUOUS STREAMING: Process PCM buffer (for transcription mode)"""
         try:
             pcm_buffer = (
                 self.transcribe_pcm_buffer if mode == "transcribe" 
@@ -252,31 +345,30 @@ class FixedAudioProcessor:
             if len(pcm_buffer) < threshold:
                 return None
             
-            # FINAL FIX: Extract audio with optimal overlap for speech continuity
-            overlap_samples = int(self.sample_rate * 0.3 * 2)  # 300ms overlap for speech
+            # Extract audio with minimal overlap for continuous streaming
+            overlap_samples = int(self.sample_rate * 0.1 * 2)  # 100ms overlap
             end_index = min(threshold + overlap_samples, len(pcm_buffer))
             
             audio_data = bytes(pcm_buffer[:end_index])
-            del pcm_buffer[:threshold]  # Keep overlap for speech continuity
+            del pcm_buffer[:threshold]  # Keep small overlap
             
-            # Create enhanced WAV file for speech
+            # Create WAV file
             wav_bytes = self._pcm_to_wav_enhanced(audio_data)
             
             # Calculate duration
             duration_ms = (len(audio_data) / 2) / self.sample_rate * 1000
             self.total_audio_length += duration_ms
             
-            # FINAL FIX: Enhanced speech detection optimized for human voice
-            speech_ratio = self._estimate_speech_ratio_enhanced(audio_data)
+            # Enhanced speech detection
+            speech_ratio = self._estimate_speech_ratio_continuous(audio_data)
             
-            # FINAL FIX: Quality control optimized for human speech
             if speech_ratio > 0.1:
                 self.speech_chunks_detected += 1
             
-            # Only process if meets minimum quality thresholds for speech
-            min_duration = self.min_speech_duration * 1000  # Convert to ms
-            if duration_ms < min_duration or speech_ratio < self.speech_threshold:
-                logger.debug(f"Skipping low quality speech: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
+            # Quality control for continuous streaming
+            min_duration = 1000  # 1 second minimum
+            if duration_ms < min_duration or speech_ratio < 0.3:
+                logger.debug(f"Skipping low quality audio: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
                 return None
             
             # Get conversation context
@@ -284,7 +376,7 @@ class FixedAudioProcessor:
             if self.conversation_manager and websocket:
                 conversation_context = self.conversation_manager.get_conversation_context(websocket)
             
-            logger.info(f"🎤 FINAL FIXED processed speech {mode}: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
+            logger.info(f"🎤 CONTINUOUS STREAMING processed {mode}: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
             
             return {
                 "audio_data": wav_bytes,
@@ -294,28 +386,27 @@ class FixedAudioProcessor:
                 "channels": self.channels,
                 "mode": mode,
                 "processed_at": time.time(),
-                "final_fixed": True,
-                "speech_optimized": True,
+                "continuous_streaming": True,
                 "conversation_context": conversation_context,
                 "vad_enabled": self.vad_enabled
             }
             
         except Exception as e:
-            logger.error(f"FINAL FIXED speech PCM buffer processing error for {mode}: {e}")
-            return {"error": f"FINAL FIXED speech processing failed: {str(e)}"}
+            logger.error(f"CONTINUOUS STREAMING PCM buffer processing error for {mode}: {e}")
+            return {"error": f"CONTINUOUS STREAMING processing failed: {str(e)}"}
     
-    def _estimate_speech_ratio_enhanced(self, pcm_data: bytes) -> float:
-        """FINAL FIX: Enhanced speech detection specifically optimized for human voice"""
+    def _estimate_speech_ratio_continuous(self, pcm_data: bytes) -> float:
+        """CONTINUOUS STREAMING: Enhanced speech ratio estimation"""
         try:
+            if not pcm_data or len(pcm_data) < 1000:
+                return 0.0
+                
             audio_array = np.frombuffer(pcm_data, dtype=np.int16)
             
-            if len(audio_array) == 0:
-                return 0.0
-            
-            # Method 1: Enhanced WebRTC VAD optimized for human speech
+            # Method 1: WebRTC VAD frame-by-frame analysis
             if self.vad_enabled and self.vad:
                 try:
-                    frame_size = int(self.sample_rate * 0.010)  # 10ms frames for better sensitivity
+                    frame_size = self.frame_size_samples
                     speech_frames = 0
                     total_frames = 0
                     
@@ -327,76 +418,44 @@ class FixedAudioProcessor:
                                 if self.vad.is_speech(frame_bytes, self.sample_rate):
                                     speech_frames += 1
                             except:
-                                pass  # Skip invalid frames
+                                pass
                             total_frames += 1
                     
                     if total_frames > 0:
                         vad_ratio = speech_frames / total_frames
-                        logger.debug(f"Enhanced VAD speech ratio: {vad_ratio:.3f}")
-                        return vad_ratio
+                        return min(1.0, max(0.0, vad_ratio))
                         
                 except Exception as e:
-                    logger.debug(f"Enhanced VAD error: {e}")
+                    logger.debug(f"VAD speech ratio error: {e}")
             
-            # Method 2: Enhanced energy-based detection for human speech
+            # Method 2: Energy-based detection as fallback
             audio_float = audio_array.astype(np.float64)
-            
-            # RMS energy with speech-optimized threshold
             rms_energy = np.sqrt(np.mean(audio_float ** 2))
-            energy_threshold = 300.0  # Optimized for human speech
+            energy_threshold = 500.0  # Adjusted for continuous streaming
             energy_ratio = min(1.0, max(0.0, (rms_energy - energy_threshold) / energy_threshold))
             
-            # Method 3: Enhanced Zero crossing rate for human speech
+            # Method 3: Zero crossing rate
             zero_crossings = np.sum(np.diff(np.signbit(audio_array)))
             zcr_normalized = zero_crossings / max(len(audio_array) - 1, 1)
             
-            # Human speech typically has ZCR between 0.01 and 0.15
-            if 0.005 <= zcr_normalized <= 0.2:
+            if 0.01 <= zcr_normalized <= 0.2:  # Speech range
                 zcr_ratio = 1.0
-            elif zcr_normalized < 0.005:
-                zcr_ratio = 0.0  # Too low - likely silence
+            elif zcr_normalized < 0.01:
+                zcr_ratio = 0.0
             else:
                 zcr_ratio = max(0.0, 1.0 - (zcr_normalized - 0.2) / 0.3)
             
-            # Method 4: Enhanced spectral analysis for human speech
-            try:
-                fft = np.fft.rfft(audio_float)
-                magnitude = np.abs(fft)
-                freqs = np.fft.rfftfreq(len(audio_float), 1.0/self.sample_rate)
-                
-                if np.sum(magnitude) > 0:
-                    spectral_centroid = np.sum(freqs * magnitude) / np.sum(magnitude)
-                    # Human speech typically between 100-500 Hz centroid
-                    if 80 <= spectral_centroid <= 600:
-                        spectral_ratio = 1.0
-                    else:
-                        spectral_ratio = 0.4
-                else:
-                    spectral_ratio = 0.0
-            except:
-                spectral_ratio = 0.5  # Default if spectral analysis fails
+            # Combine metrics for continuous streaming
+            final_ratio = energy_ratio * 0.6 + zcr_ratio * 0.4
             
-            # FINAL FIX: Optimized combination for human speech
-            final_ratio = (
-                energy_ratio * 0.5 +      # Energy is most important for speech
-                zcr_ratio * 0.3 +         # ZCR for speech characteristics  
-                spectral_ratio * 0.2      # Spectral for human voice frequency content
-            )
-            
-            # Apply bounds and smoothing
-            final_ratio = max(0.0, min(1.0, final_ratio))
-            
-            logger.debug(f"Enhanced speech detection - Energy: {energy_ratio:.3f}, ZCR: {zcr_ratio:.3f}, "
-                        f"Spectral: {spectral_ratio:.3f}, Final: {final_ratio:.3f}")
-            
-            return final_ratio
+            return max(0.0, min(1.0, final_ratio))
             
         except Exception as e:
-            logger.error(f"FINAL FIXED enhanced speech ratio error: {e}")
-            return 0.3  # More optimistic fallback for speech
+            logger.error(f"CONTINUOUS STREAMING speech ratio error: {e}")
+            return 0.4  # Optimistic fallback
     
     def _pcm_to_wav_enhanced(self, pcm_data: bytes) -> bytes:
-        """FINAL FIX: Enhanced PCM to WAV conversion optimized for speech"""
+        """CONTINUOUS STREAMING: Enhanced PCM to WAV conversion"""
         try:
             wav_io = io.BytesIO()
             
@@ -407,49 +466,51 @@ class FixedAudioProcessor:
                 wav_file.writeframes(pcm_data)
             
             wav_bytes = wav_io.getvalue()
-            logger.debug(f"FINAL FIXED speech WAV conversion: {len(pcm_data)} PCM → {len(wav_bytes)} WAV bytes")
+            logger.debug(f"CONTINUOUS STREAMING WAV conversion: {len(pcm_data)} PCM → {len(wav_bytes)} WAV bytes")
             
             return wav_bytes
             
         except Exception as e:
-            logger.error(f"FINAL FIXED speech WAV conversion error: {e}")
-            raise RuntimeError(f"FINAL FIXED speech WAV conversion failed: {e}")
+            logger.error(f"CONTINUOUS STREAMING WAV conversion error: {e}")
+            raise RuntimeError(f"CONTINUOUS STREAMING WAV conversion failed: {e}")
     
     async def _restart_ffmpeg_process(self, mode: str, websocket=None):
-        """FINAL FIX: Enhanced FFmpeg restart with proper cleanup for speech"""
+        """CONTINUOUS STREAMING: Enhanced FFmpeg restart"""
         try:
-            logger.info(f"🔄 Restarting FINAL FIXED speech {mode} FFmpeg process...")
+            logger.info(f"🔄 Restarting CONTINUOUS STREAMING {mode} FFmpeg process...")
             
             # Clean up old process
             if mode == "transcribe" and self.transcribe_ffmpeg_process:
                 try:
                     self.transcribe_ffmpeg_process.terminate()
-                    await asyncio.sleep(2.0)  # More time for speech processes
+                    await asyncio.sleep(3.0)
                 except:
                     pass
                 self.transcribe_ffmpeg_process = None
             elif mode == "understand" and self.understand_ffmpeg_process:
                 try:
                     self.understand_ffmpeg_process.terminate()
-                    await asyncio.sleep(2.0)
+                    await asyncio.sleep(3.0)
                 except:
                     pass
                 self.understand_ffmpeg_process = None
             
-            # Clear buffer to start fresh
+            # Clear buffer partially (keep some data for continuity)
             if mode == "transcribe":
-                self.transcribe_pcm_buffer.clear()
+                if len(self.transcribe_pcm_buffer) > 32000:  # Keep last 1 second
+                    self.transcribe_pcm_buffer = self.transcribe_pcm_buffer[-32000:]
             else:
-                self.understand_pcm_buffer.clear()
+                if len(self.understand_pcm_buffer) > 32000:
+                    self.understand_pcm_buffer = self.understand_pcm_buffer[-32000:]
             
             # Restart with enhanced configuration
             await self.start_ffmpeg_decoder(mode, websocket)
             
         except Exception as e:
-            logger.error(f"Failed to restart FINAL FIXED speech {mode} process: {e}")
+            logger.error(f"Failed to restart CONTINUOUS STREAMING {mode} process: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get enhanced processing statistics for speech"""
+        """Get CONTINUOUS STREAMING processing statistics"""
         avg_processing_time = (
             sum(self.processing_times) / len(self.processing_times)
             if self.processing_times else 0.0
@@ -473,16 +534,17 @@ class FixedAudioProcessor:
             "vad_enabled": self.vad_enabled,
             "active_connections": len(self.active_connections),
             "avg_processing_time_ms": round(avg_processing_time * 1000, 2),
-            "final_fixed": True,
-            "speech_optimized": True,
-            "transcribe_threshold_seconds": self.transcribe_threshold / (self.sample_rate * 2),
-            "understand_threshold_seconds": self.understand_threshold / (self.sample_rate * 2),
-            "speech_threshold": self.speech_threshold,
-            "min_speech_duration": self.min_speech_duration
+            "continuous_streaming": True,
+            "gap_detection": {
+                "threshold_ms": self.gap_threshold_ms,
+                "min_speech_duration_ms": self.min_speech_duration_ms,
+                "frame_size_ms": self.frame_size_ms,
+                "active_gap_states": len(self.gap_detection_state)
+            }
         }
     
     def reset(self):
-        """Reset processor state"""
+        """Reset CONTINUOUS STREAMING processor state"""
         self.transcribe_pcm_buffer.clear()
         self.understand_pcm_buffer.clear()
         self.chunks_processed = 0
@@ -491,12 +553,13 @@ class FixedAudioProcessor:
         self.processing_times.clear()
         self.active_connections.clear()
         self.last_activity.clear()
+        self.gap_detection_state.clear()
         
-        logger.info("✅ FINAL FIXED speech audio processor reset")
+        logger.info("✅ CONTINUOUS STREAMING audio processor reset")
     
     async def cleanup(self):
-        """FINAL FIX: Enhanced cleanup for speech processing"""
-        logger.info("🧹 Starting FINAL FIXED speech audio processor cleanup...")
+        """CONTINUOUS STREAMING: Enhanced cleanup"""
+        logger.info("🧹 Starting CONTINUOUS STREAMING audio processor cleanup...")
         
         processes = [
             ("transcribe", self.transcribe_ffmpeg_process),
@@ -515,23 +578,23 @@ class FixedAudioProcessor:
                     
                     process.terminate()
                     try:
-                        await asyncio.wait_for(asyncio.to_thread(process.wait), timeout=15.0)
+                        await asyncio.wait_for(asyncio.to_thread(process.wait), timeout=20.0)
                     except asyncio.TimeoutError:
                         process.kill()
                         await asyncio.to_thread(process.wait)
                     
-                    logger.info(f"✅ FINAL FIXED FFmpeg speech {mode} process cleaned up")
+                    logger.info(f"✅ CONTINUOUS STREAMING FFmpeg {mode} process cleaned up")
                 except Exception as e:
-                    logger.error(f"FINAL FIXED FFmpeg speech {mode} cleanup error: {e}")
+                    logger.error(f"CONTINUOUS STREAMING FFmpeg {mode} cleanup error: {e}")
         
         self.transcribe_ffmpeg_process = None
         self.understand_ffmpeg_process = None
         
-        # FINAL FIX: Enhanced shutdown
+        # Enhanced shutdown
         try:
             self.executor.shutdown(wait=True)
         except Exception as e:
-            logger.error(f"FINAL FIXED speech executor shutdown error: {e}")
+            logger.error(f"CONTINUOUS STREAMING executor shutdown error: {e}")
         
         self.reset()
-        logger.info("✅ FINAL FIXED speech audio processor fully cleaned up")
+        logger.info("✅ CONTINUOUS STREAMING audio processor fully cleaned up")
