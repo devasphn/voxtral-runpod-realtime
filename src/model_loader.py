@@ -1,4 +1,3 @@
-# FINAL PERFECTED SOLUTION - model_loader.py - ROBUST ERROR HANDLING & VALIDATION
 import asyncio
 import logging
 import torch
@@ -6,14 +5,13 @@ from typing import Optional, Dict, Any
 import tempfile
 import os
 import wave
-import numpy as np
 
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
 
 logger = logging.getLogger(__name__)
 
 class VoxtralModelManager:
-    """FINAL PERFECTED: Voxtral model manager with correct API usage and hardened error handling."""
+    """FINAL PERFECTED: Voxtral model manager with Flash Attention 2, correct API usage, and hardened error handling."""
     
     def __init__(
         self, 
@@ -34,11 +32,14 @@ class VoxtralModelManager:
         try:
             logger.info(f"🔄 Loading FINAL PERFECTED Voxtral model: {self.model_name}")
             if torch.cuda.is_available(): torch.cuda.empty_cache()
+            
             self.processor = AutoProcessor.from_pretrained(self.model_name)
+            
+            # THE FIX: Explicitly use flash_attention_2 for max performance on compatible GPUs
             self.model = VoxtralForConditionalGeneration.from_pretrained(
                 self.model_name, torch_dtype=self.torch_dtype, device_map="auto",
                 trust_remote_code=True, low_cpu_mem_usage=True,
-                attn_implementation="flash_attention_2" if torch.cuda.is_available() else "eager"
+                attn_implementation="flash_attention_2"
             )
             self.model.eval()
             self.is_loaded = True
@@ -103,21 +104,14 @@ class VoxtralModelManager:
             return {"error": f"Understanding failed: {str(e)}"}
     
     def _create_wav_file(self, audio_data: bytes) -> Optional[str]:
-        # This function is robust and does not require changes.
         try:
-            temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
-            os.close(temp_fd)
-            if audio_data.startswith(b'RIFF'):
-                with open(temp_path, 'wb') as f: f.write(audio_data)
-            else:
-                with wave.open(temp_path, 'wb') as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(16000)
-                    wf.writeframes(audio_data)
+            fd, temp_path = tempfile.mkstemp(suffix='.wav')
+            os.close(fd)
+            with wave.open(temp_path, 'wb') as wf:
+                wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(16000); wf.writeframes(audio_data)
             return temp_path
         except Exception as e:
-            logger.error(f"WAV file creation failed: {e}")
+            logger.error(f"WAV file creation failed: {e}", exc_info=True)
             return None
 
     def _get_memory_usage(self) -> Dict[str, float]:
@@ -128,5 +122,6 @@ class VoxtralModelManager:
         logger.info("🧹 Cleaning up FINAL PERFECTED model resources...")
         del self.model
         del self.processor
+        self.model, self.processor = None, None
         if torch.cuda.is_available(): torch.cuda.empty_cache()
         logger.info("✅ FINAL PERFECTED model cleanup completed.")
