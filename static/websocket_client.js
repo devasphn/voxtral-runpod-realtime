@@ -1,5 +1,5 @@
-// PERFECT WEBSOCKET CLIENT - HANDLES UNIFIED APPROACH WITH ROBUST ERROR HANDLING
-class PerfectVoxtralClient {
+// FIXED WEBSOCKET CLIENT - HANDLES UNIFIED APPROACH WITH ROBUST ERROR HANDLING
+class VoxtralClient {
     constructor() {
         this.websocket = null;
         this.isConnected = false;
@@ -415,7 +415,7 @@ class PerfectVoxtralClient {
 // Initialize client when page loads with error handling
 document.addEventListener('DOMContentLoaded', () => {
     try {
-        window.voxtralClient = new PerfectVoxtralClient();
+        window.voxtralClient = new VoxtralClient();
     } catch (error) {
         console.error('Failed to initialize Voxtral client:', error);
     }
