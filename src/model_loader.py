@@ -14,7 +14,7 @@ from transformers import VoxtralForConditionalGeneration, AutoProcessor
 
 logger = logging.getLogger(__name__)
 
-class PerfectVoxtralModelManager:
+class VoxtralModelManager:
     """PERFECT: Unified Voxtral model manager with robust audio processing"""
     
     def __init__(
