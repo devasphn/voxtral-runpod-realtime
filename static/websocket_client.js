@@ -1,4 +1,4 @@
-// FINAL PERFECT CLIENT - websocket_client.js - FIXED QUERY SPAM ISSUE
+// FIXED WEBSOCKET CLIENT - HANDLES UNIFIED APPROACH WITH ROBUST ERROR HANDLING
 class VoxtralClient {
     constructor() {
         this.websocket = null;
@@ -8,21 +8,17 @@ class VoxtralClient {
         this.audioStream = null;
         this.serviceType = 'transcribe';
         
-        // FINAL PERFECT: Enhanced audio configuration
+        // Enhanced audio configuration
         this.audioConfig = {
             sampleRate: 16000,
             channels: 1,
             mimeType: 'audio/webm;codecs=opus'
         };
         
-        // Connection retry configuration  
+        // Connection retry configuration
         this.maxRetries = 3;
         this.retryDelay = 2000;
         this.currentRetries = 0;
-        
-        // FINAL PERFECT FIX: Track if query was sent to prevent spam
-        this.querySent = false;
-        this.lastQuerySent = '';
         
         this.initializeUI();
         this.loadSystemInfo();
@@ -32,7 +28,7 @@ class VoxtralClient {
         // Get DOM elements
         this.elements = {
             connectBtn: document.getElementById('connect-btn'),
-            recordBtn: document.getElementById('record-btn'), 
+            recordBtn: document.getElementById('record-btn'),
             disconnectBtn: document.getElementById('disconnect-btn'),
             serviceType: document.getElementById('service-type'),
             textQuery: document.getElementById('text-query'),
@@ -46,7 +42,7 @@ class VoxtralClient {
             logsContainer: document.getElementById('logs-container')
         };
         
-        // Bind event listeners
+        // Bind event listeners with error handling
         this.elements.connectBtn.addEventListener('click', () => this.connect());
         this.elements.disconnectBtn.addEventListener('click', () => this.disconnect());
         this.elements.recordBtn.addEventListener('click', () => this.toggleRecording());
@@ -54,21 +50,6 @@ class VoxtralClient {
         this.elements.serviceType.addEventListener('change', (e) => {
             this.serviceType = e.target.value;
             this.toggleQuerySection();
-            
-            // FINAL PERFECT FIX: Reset query sent flag when switching modes
-            this.querySent = false;
-            this.lastQuerySent = '';
-            
-            if (this.isRecording && this.serviceType === 'understand') {
-                this.log('Switching to FINAL PERFECT understanding mode', 'info');
-            }
-        });
-        
-        // FINAL PERFECT FIX: Only send query when it actually changes
-        this.elements.textQuery.addEventListener('change', () => {
-            if (this.isConnected && this.serviceType === 'understand') {
-                this.sendQueryIfChanged();
-            }
         });
         
         this.toggleQuerySection();
@@ -77,29 +58,6 @@ class VoxtralClient {
     toggleQuerySection() {
         const isUnderstanding = this.serviceType === 'understand';
         this.elements.querySection.style.display = isUnderstanding ? 'block' : 'none';
-        
-        if (isUnderstanding) {
-            this.elements.textQuery.value = 'Please respond naturally to what I said';
-        }
-    }
-    
-    // FINAL PERFECT FIX: Only send query when it changes
-    sendQueryIfChanged() {
-        const currentQuery = this.elements.textQuery.value.trim();
-        
-        if (currentQuery !== this.lastQuerySent && this.websocket && this.websocket.readyState === WebSocket.OPEN) {
-            try {
-                const queryMessage = {
-                    query: currentQuery
-                };
-                
-                this.websocket.send(JSON.stringify(queryMessage));
-                this.lastQuerySent = currentQuery;
-                this.log(`Query updated: '${currentQuery}'`, 'info');
-            } catch (error) {
-                this.log('Failed to send query: ' + error.message, 'error');
-            }
-        }
     }
     
     async loadSystemInfo() {
@@ -113,13 +71,11 @@ class VoxtralClient {
             
             this.elements.systemInfo.innerHTML = `
                 <div><strong>Model:</strong> ${info.model_name}</div>
-                <div><strong>Architecture:</strong> ${info.architecture || 'FINAL_PERFECT_UNDERSTANDING_MODE'}</div>
                 <div><strong>Device:</strong> ${info.device}</div>
                 <div><strong>Parameters:</strong> ${info.model_size}</div>
                 <div><strong>Context Length:</strong> ${info.context_length}</div>
-                <div><strong>Gap Threshold:</strong> 300ms</div>
-                <div><strong>Target Latency:</strong> &lt;200ms</div>
                 <div><strong>Languages:</strong> ${info.supported_languages.join(', ')}</div>
+                <div><strong>Processing:</strong> ${info.audio_processing}</div>
             `;
             
             this.updateStatus('model', 'loaded', 'loaded');
@@ -139,27 +95,19 @@ class VoxtralClient {
     async connect() {
         if (this.isConnected) return;
         
-        this.log(`Connecting to FINAL PERFECT ${this.serviceType} service...`, 'info');
+        this.log(`Connecting to ${this.serviceType} service...`, 'info');
         
         try {
             const wsUrl = this.getWebSocketURL();
             this.websocket = new WebSocket(wsUrl);
             
-            // Set up event handlers
+            // Set up event handlers with robust error handling
             this.websocket.onopen = () => {
                 this.isConnected = true;
                 this.currentRetries = 0;
                 this.updateStatus('connection', 'connected', 'connected');
                 this.updateButtons();
-                this.log(`✅ Connected to FINAL PERFECT ${this.serviceType} service`, 'success');
-                
-                // FINAL PERFECT FIX: Send query only once after connection, only for understanding mode
-                if (this.serviceType === 'understand') {
-                    // Send query after a brief delay to ensure connection is stable
-                    setTimeout(() => {
-                        this.sendQueryIfChanged();
-                    }, 100);
-                }
+                this.log(`✅ Connected to ${this.serviceType} service`, 'success');
             };
             
             this.websocket.onmessage = (event) => {
@@ -172,7 +120,7 @@ class VoxtralClient {
             };
             
             this.websocket.onerror = (error) => {
-                this.log('FINAL PERFECT WebSocket error occurred', 'error');
+                this.log('WebSocket error occurred', 'error');
                 console.error('WebSocket error:', error);
             };
             
@@ -181,14 +129,10 @@ class VoxtralClient {
                 this.updateStatus('connection', 'disconnected', 'disconnected');
                 this.updateButtons();
                 
-                // FINAL PERFECT FIX: Reset query tracking on disconnect
-                this.querySent = false;
-                this.lastQuerySent = '';
-                
                 if (event.wasClean) {
-                    this.log('FINAL PERFECT connection closed cleanly', 'info');
+                    this.log('Connection closed cleanly', 'info');
                 } else {
-                    this.log(`FINAL PERFECT connection lost (code: ${event.code})`, 'warning');
+                    this.log(`Connection lost (code: ${event.code})`, 'warning');
                     
                     // Auto-reconnect logic
                     if (this.currentRetries < this.maxRetries) {
@@ -206,7 +150,7 @@ class VoxtralClient {
             };
             
         } catch (error) {
-            this.log('FINAL PERFECT connection failed: ' + error.message, 'error');
+            this.log('Connection failed: ' + error.message, 'error');
             this.updateStatus('connection', 'error', 'error');
         }
     }
@@ -214,16 +158,12 @@ class VoxtralClient {
     disconnect() {
         if (!this.isConnected) return;
         
-        this.log('Disconnecting from FINAL PERFECT...', 'info');
+        this.log('Disconnecting...', 'info');
         this.currentRetries = this.maxRetries; // Prevent auto-reconnect
         
         if (this.isRecording) {
             this.stopRecording();
         }
-        
-        // FINAL PERFECT FIX: Reset query tracking
-        this.querySent = false;
-        this.lastQuerySent = '';
         
         if (this.websocket) {
             this.websocket.close(1000, 'User disconnected');
@@ -241,14 +181,14 @@ class VoxtralClient {
     
     async startRecording() {
         if (!this.isConnected) {
-            this.log('Not connected to FINAL PERFECT service', 'error');
+            this.log('Not connected to service', 'error');
             return;
         }
         
         try {
-            this.log(`Starting FINAL PERFECT ${this.serviceType} recording...`, 'info');
+            this.log('Starting audio recording...', 'info');
             
-            // Request microphone access
+            // Request microphone access with enhanced constraints
             this.audioStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     sampleRate: this.audioConfig.sampleRate,
@@ -259,9 +199,10 @@ class VoxtralClient {
                 }
             });
             
-            // Check MIME type support
+            // Check if the desired MIME type is supported
             let mimeType = this.audioConfig.mimeType;
             if (!MediaRecorder.isTypeSupported(mimeType)) {
+                // Fallback options
                 const fallbacks = [
                     'audio/webm;codecs=opus',
                     'audio/webm',
@@ -277,12 +218,12 @@ class VoxtralClient {
                 }
             }
             
-            // Create media recorder
+            // Create media recorder with robust error handling
             this.mediaRecorder = new MediaRecorder(this.audioStream, {
                 mimeType: mimeType
             });
             
-            // FINAL PERFECT: Handle audio data for both modes
+            // Handle audio data
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data && event.data.size > 0 && this.isConnected) {
                     this.sendAudioData(event.data);
@@ -294,27 +235,23 @@ class VoxtralClient {
                 this.stopRecording();
             };
             
-            // FINAL PERFECT: Different intervals for different modes
-            const recordingInterval = this.serviceType === 'transcribe' ? 500 : 100; // Faster for understanding
+            // Start recording with appropriate interval
+            const recordingInterval = this.serviceType === 'transcribe' ? 500 : 1000;
             this.mediaRecorder.start(recordingInterval);
             
             this.isRecording = true;
             this.updateStatus('audio', 'recording', 'recording');
             this.updateButtons();
-            this.log(`FINAL PERFECT ${this.serviceType} recording started (${mimeType})`, 'success');
-            
-            if (this.serviceType === 'understand') {
-                this.log('🧠 FINAL PERFECT: Speak now, I will respond after 300ms silence gap', 'info');
-            }
+            this.log(`Recording started (${mimeType})`, 'success');
             
         } catch (error) {
-            this.log('Failed to start FINAL PERFECT recording: ' + error.message, 'error');
+            this.log('Failed to start recording: ' + error.message, 'error');
             this.updateStatus('audio', 'error', 'error');
         }
     }
     
     stopRecording() {
-        this.log('Stopping FINAL PERFECT recording...', 'info');
+        this.log('Stopping audio recording...', 'info');
         
         try {
             if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
@@ -332,10 +269,10 @@ class VoxtralClient {
             this.isRecording = false;
             this.updateStatus('audio', 'stopped', 'not recording');
             this.updateButtons();
-            this.log('FINAL PERFECT recording stopped', 'info');
+            this.log('Recording stopped', 'info');
             
         } catch (error) {
-            this.log('Error stopping FINAL PERFECT recording: ' + error.message, 'error');
+            this.log('Error stopping recording: ' + error.message, 'error');
         }
     }
     
@@ -346,14 +283,28 @@ class VoxtralClient {
                 return;
             }
             
-            // FINAL PERFECT: Both modes use binary streaming
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            if (arrayBuffer.byteLength > 0) {
-                this.websocket.send(arrayBuffer);
+            if (this.serviceType === 'transcribe') {
+                // Send raw binary audio data for transcription
+                const arrayBuffer = await audioBlob.arrayBuffer();
+                if (arrayBuffer.byteLength > 0) {
+                    this.websocket.send(arrayBuffer);
+                }
+            } else {
+                // For understanding, send JSON with base64 audio and query
+                const arrayBuffer = await audioBlob.arrayBuffer();
+                if (arrayBuffer.byteLength > 0) {
+                    const audioData = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+                    
+                    const message = {
+                        audio: audioData,
+                        text: this.elements.textQuery.value || 'What can you hear in this audio?'
+                    };
+                    
+                    this.websocket.send(JSON.stringify(message));
+                }
             }
-            
         } catch (error) {
-            this.log('Failed to send FINAL PERFECT audio data: ' + error.message, 'error');
+            this.log('Failed to send audio data: ' + error.message, 'error');
         }
     }
     
@@ -364,7 +315,7 @@ class VoxtralClient {
         }
         
         if (data.error) {
-            this.log('FINAL PERFECT service error: ' + data.error, 'error');
+            this.log('Service error: ' + data.error, 'error');
             this.addResult('error', `❌ ${data.error}`, new Date());
             return;
         }
@@ -372,24 +323,10 @@ class VoxtralClient {
         // Handle successful results
         if (data.type === 'transcription' && data.text) {
             this.addResult('transcription', data.text, new Date());
-            this.log('✅ FINAL PERFECT transcription received', 'success');
+            this.log('✅ Transcription received', 'success');
         } else if (data.type === 'understanding' && data.response) {
-            // Show performance metrics if available
-            let performanceInfo = '';
-            if (data.performance) {
-                const totalTime = data.performance.total_time_ms;
-                const isUnder200ms = totalTime < 200;
-                const performanceIcon = isUnder200ms ? '🚀' : '⏱️';
-                performanceInfo = ` ${performanceIcon} ${totalTime.toFixed(0)}ms`;
-            }
-            
-            this.addResult('understanding', data.response + performanceInfo, new Date());
-            this.log(`✅ FINAL PERFECT understanding response received${performanceInfo}`, 'success');
-            
-            // Show transcription if available
-            if (data.transcription) {
-                this.log(`📝 Transcribed: "${data.transcription}"`, 'info');
-            }
+            this.addResult('understanding', data.response, new Date());
+            this.log('✅ Understanding response received', 'success');
         }
     }
     
@@ -400,11 +337,11 @@ class VoxtralClient {
             noResults.remove();
         }
         
-        // Create result element
+        // Create result element with enhanced styling
         const resultElement = document.createElement('div');
         resultElement.className = 'result-item';
         
-        // Color coding
+        // Color coding based on type
         let typeClass = 'result-transcription';
         if (type === 'understanding') typeClass = 'result-understanding';
         if (type === 'error') typeClass = 'result-error';
@@ -420,9 +357,9 @@ class VoxtralClient {
         // Add to container (newest first)
         this.elements.resultsContainer.insertBefore(resultElement, this.elements.resultsContainer.firstChild);
         
-        // Keep only last 20 results
+        // Keep only last 15 results
         const results = this.elements.resultsContainer.querySelectorAll('.result-item');
-        if (results.length > 20) {
+        if (results.length > 15) {
             results[results.length - 1].remove();
         }
     }
@@ -462,25 +399,24 @@ class VoxtralClient {
         
         this.elements.logsContainer.insertBefore(logElement, this.elements.logsContainer.firstChild);
         
-        // Keep only last 150 log entries
+        // Keep only last 100 log entries
         const logs = this.elements.logsContainer.querySelectorAll('.log-entry');
-        if (logs.length > 150) {
+        if (logs.length > 100) {
             logs[logs.length - 1].remove();
         }
         
         // Auto scroll to latest
         this.elements.logsContainer.scrollTop = 0;
         
-        console.log(`[FINAL PERFECT ${level.toUpperCase()}] ${message}`);
+        console.log(`[${level.toUpperCase()}] ${message}`);
     }
 }
 
-// Initialize client when page loads
+// Initialize client when page loads with error handling
 document.addEventListener('DOMContentLoaded', () => {
     try {
         window.voxtralClient = new VoxtralClient();
-        console.log('✅ FINAL PERFECT Voxtral client initialized');
     } catch (error) {
-        console.error('Failed to initialize FINAL PERFECT Voxtral client:', error);
+        console.error('Failed to initialize Voxtral client:', error);
     }
 });
