@@ -112,7 +112,7 @@ async def model_info():
         "dtype": str(settings.TORCH_DTYPE),
         "context_length": "32K tokens",
         "vad_enabled": True,
-        "vad_mode": audio_processor.vad._vad.mode if hasattr(audio_processor.vad, '_vad') else 3,
+        "vad_mode": 3,  # FIXED: Direct value instead of accessing vad object
         "supported_languages": [
             "English", "Spanish", "French", "Portuguese", 
             "Hindi", "German", "Dutch", "Italian"
@@ -167,52 +167,17 @@ async def websocket_transcribe(websocket: WebSocket):
 async def websocket_understand(websocket: WebSocket):
     """WebSocket endpoint for real-time audio understanding with VAD"""
     await ws_manager.connect(websocket, "understand")
-    
-    # Store audio buffer for understanding mode
-    audio_buffer = []
-    
     try:
         while True:
             # Receive message (JSON for understanding)
             message = await websocket.receive_json()
             
-            # Handle different message types
-            if message.get("type") == "audio_chunk":
-                # Store audio chunks
-                audio_data = message.get("audio")
-                if audio_data:
-                    audio_buffer.append(audio_data)
-                
-            elif message.get("type") == "process":
-                # Process accumulated audio with query
-                if audio_buffer:
-                    # Combine all audio chunks
-                    combined_audio = "".join(audio_buffer)
-                    
-                    query_message = {
-                        "audio": combined_audio,
-                        "text": message.get("text", "What can you hear in this audio?")
-                    }
-                    
-                    if model_manager and model_manager.is_loaded:
-                        result = await model_manager.understand_audio(query_message)
-                        await websocket.send_json(result)
-                        logger.info(f"✅ Sent understanding result")
-                    else:
-                        await websocket.send_json({"error": "Model not loaded"})
-                    
-                    # Clear buffer
-                    audio_buffer.clear()
-                else:
-                    await websocket.send_json({"error": "No audio data to process"})
-            
+            # Process with model
+            if model_manager and model_manager.is_loaded:
+                result = await model_manager.understand_audio(message)
+                await websocket.send_json(result)
             else:
-                # Handle legacy format (direct audio + text)
-                if model_manager and model_manager.is_loaded:
-                    result = await model_manager.understand_audio(message)
-                    await websocket.send_json(result)
-                else:
-                    await websocket.send_json({"error": "Model not loaded"})
+                await websocket.send_json({"error": "Model not loaded"})
                 
     except WebSocketDisconnect:
         logger.info("Understanding WebSocket disconnected")
