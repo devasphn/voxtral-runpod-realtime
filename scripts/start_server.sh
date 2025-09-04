@@ -134,4 +134,4 @@ MAIN_PID=$!
 echo "🚀 COMPLETELY FIXED main server started (PID: $MAIN_PID)"
 
 # Wait for the main process to exit
-wait $MAIN_PID```
+wait $MAIN_PID
