@@ -1,4 +1,4 @@
-# FIXED AUDIO PROCESSOR - WITH CORRECT THREADPOOL HANDLING AND STREAMING
+# COMPLETELY FIXED AUDIO PROCESSOR - REPLACE ENTIRE src/audio_processor.py FILE
 import asyncio
 import logging
 import numpy as np
@@ -18,7 +18,7 @@ import time
 logger = logging.getLogger(__name__)
 
 class FixedAudioProcessor:
-    """FIXED: Audio processor with corrected ThreadPool handling and streaming"""
+    """COMPLETELY FIXED: Audio processor with improved buffering and VAD"""
     
     def __init__(
         self,
@@ -40,15 +40,15 @@ class FixedAudioProcessor:
         self.transcribe_pcm_buffer = bytearray()
         self.understand_pcm_buffer = bytearray()
         
-        # FIXED: Processing thresholds (ensure integers)
-        self.transcribe_threshold = int(sample_rate * 0.5)  # 500ms
-        self.understand_threshold = int(sample_rate * 1.0)  # 1 second
+        # FIXED: Increased processing thresholds for better accuracy
+        self.transcribe_threshold = int(sample_rate * 1.5 * 2)  # 1.5 seconds of 16-bit audio
+        self.understand_threshold = int(sample_rate * 2.0 * 2)  # 2 seconds of 16-bit audio
         
-        # Voice Activity Detection
+        # Voice Activity Detection with improved settings
         try:
-            self.vad = webrtcvad.Vad(2)
+            self.vad = webrtcvad.Vad(1)  # Less aggressive VAD
             self.vad_enabled = True
-            logger.info("✅ WebRTC VAD initialized")
+            logger.info("✅ WebRTC VAD initialized (mode 1 - less aggressive)")
         except:
             self.vad = None
             self.vad_enabled = False
@@ -61,13 +61,19 @@ class FixedAudioProcessor:
         self.processing_times = collections.deque(maxlen=100)
         
         # FIXED: ThreadPoolExecutor without timeout parameter
-        self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="AudioProc")
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="AudioProc")
         
         # Connection tracking
         self.active_connections = set()
         self.last_activity = {}
         
+        # FIXED: Audio quality control
+        self.min_speech_duration = 0.8  # Minimum speech duration in seconds
+        self.speech_threshold = 0.4     # Minimum speech ratio
+        
         logger.info(f"✅ FIXED AudioProcessor initialized: {sample_rate}Hz, {channels}ch, VAD: {self.vad_enabled}")
+        logger.info(f"   Transcribe threshold: {self.transcribe_threshold} bytes ({self.transcribe_threshold/(sample_rate*2):.1f}s)")
+        logger.info(f"   Understand threshold: {self.understand_threshold} bytes ({self.understand_threshold/(sample_rate*2):.1f}s)")
     
     async def start_ffmpeg_decoder(self, mode: str, websocket=None):
         """FIXED: Start FFmpeg decoder with better error handling"""
@@ -78,10 +84,10 @@ class FixedAudioProcessor:
                 self.active_connections.add(conn_id)
                 self.last_activity[conn_id] = time.time()
             
-            # FIXED: Improved FFmpeg configuration
+            # FIXED: Improved FFmpeg configuration with better quality
             ffmpeg_process = (
                 ffmpeg
-                .input('pipe:0', format='webm', thread_queue_size=512)
+                .input('pipe:0', format='webm', thread_queue_size=1024)
                 .output(
                     'pipe:1', 
                     format='s16le', 
@@ -89,7 +95,7 @@ class FixedAudioProcessor:
                     ac=self.channels, 
                     ar=str(self.sample_rate),
                     audio_bitrate='128k',
-                    bufsize='512k'
+                    bufsize='1024k'
                 )
                 .run_async(
                     pipe_stdin=True, 
@@ -129,7 +135,7 @@ class FixedAudioProcessor:
         )
         
         consecutive_errors = 0
-        max_errors = 3  # FIXED: Reduced error threshold
+        max_errors = 5  # Increased error tolerance
         
         try:
             while ffmpeg_process and ffmpeg_process.stdout:
@@ -139,9 +145,9 @@ class FixedAudioProcessor:
                         loop.run_in_executor(
                             self.executor, 
                             ffmpeg_process.stdout.read, 
-                            4096
+                            8192  # Larger chunks
                         ),
-                        timeout=3.0  # FIXED: Reduced timeout
+                        timeout=5.0  # Increased timeout
                     )
                     
                     if not chunk:
@@ -151,8 +157,8 @@ class FixedAudioProcessor:
                     # Add to PCM buffer
                     pcm_buffer.extend(chunk)
                     
-                    # FIXED: Buffer size management (30 seconds max)
-                    max_buffer_size = int(self.sample_rate * 30 * 2)  # 30 seconds
+                    # FIXED: Buffer size management (60 seconds max)
+                    max_buffer_size = int(self.sample_rate * 60 * 2)  # 60 seconds
                     if len(pcm_buffer) > max_buffer_size:
                         excess = len(pcm_buffer) - max_buffer_size
                         del pcm_buffer[:excess]
@@ -184,12 +190,12 @@ class FixedAudioProcessor:
                 self.last_activity.pop(conn_id, None)
     
     async def process_webm_chunk_transcribe(self, webm_data: bytes, websocket=None) -> Optional[Dict[str, Any]]:
-        """FIXED: Transcription processing with proper error handling"""
+        """FIXED: Transcription processing with improved buffering"""
         start_time = time.time()
         
         try:
             # FIXED: Better input validation
-            if not webm_data or len(webm_data) < 50:  # Minimum valid WebM size
+            if not webm_data or len(webm_data) < 100:
                 logger.debug("Insufficient WebM data")
                 return None
             
@@ -203,11 +209,11 @@ class FixedAudioProcessor:
                     self.transcribe_ffmpeg_process.stdin.flush()
                     
                     # FIXED: Small processing delay
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.02)
                     
                     self.chunks_processed += 1
                     
-                    # Check if ready to process
+                    # FIXED: Only process when we have sufficient audio
                     if len(self.transcribe_pcm_buffer) >= self.transcribe_threshold:
                         result = self._process_pcm_buffer_fixed("transcribe", websocket)
                         
@@ -235,7 +241,7 @@ class FixedAudioProcessor:
         
         try:
             # FIXED: Input validation
-            if not webm_data or len(webm_data) < 50:
+            if not webm_data or len(webm_data) < 100:
                 logger.debug("Insufficient WebM data for understanding")
                 return None
             
@@ -248,7 +254,7 @@ class FixedAudioProcessor:
                     self.understand_ffmpeg_process.stdin.write(webm_data)
                     self.understand_ffmpeg_process.stdin.flush()
                     
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.02)
                     
                     # Check if ready to process
                     if len(self.understand_pcm_buffer) >= self.understand_threshold:
@@ -272,7 +278,7 @@ class FixedAudioProcessor:
             return {"error": f"FIXED processing failed: {str(e)}"}
     
     def _process_pcm_buffer_fixed(self, mode: str, websocket=None) -> Dict[str, Any]:
-        """FIXED: PCM buffer processing with proper integer handling"""
+        """FIXED: PCM buffer processing with improved quality control"""
         try:
             pcm_buffer = (
                 self.transcribe_pcm_buffer if mode == "transcribe" 
@@ -286,8 +292,8 @@ class FixedAudioProcessor:
             if len(pcm_buffer) < threshold:
                 return None
             
-            # FIXED: Extract audio with overlap (proper integer slicing)
-            overlap_samples = int(self.sample_rate * 0.1)  # 100ms overlap
+            # FIXED: Extract audio with proper overlap
+            overlap_samples = int(self.sample_rate * 0.2 * 2)  # 200ms overlap (in bytes)
             end_index = min(threshold + overlap_samples, len(pcm_buffer))
             
             audio_data = bytes(pcm_buffer[:end_index])
@@ -300,11 +306,18 @@ class FixedAudioProcessor:
             duration_ms = (len(audio_data) / 2) / self.sample_rate * 1000
             self.total_audio_length += duration_ms
             
-            # FIXED: Speech detection
+            # FIXED: Better speech detection
             speech_ratio = self._estimate_speech_ratio_fixed(audio_data)
             
+            # FIXED: Quality control - only return if speech quality is good
             if speech_ratio > 0.1:
                 self.speech_chunks_detected += 1
+            
+            # Only process if meets minimum quality thresholds
+            min_duration = self.min_speech_duration * 1000  # Convert to ms
+            if duration_ms < min_duration or speech_ratio < self.speech_threshold:
+                logger.debug(f"Skipping low quality audio: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
+                return None
             
             # Get conversation context
             conversation_context = ""
@@ -331,17 +344,17 @@ class FixedAudioProcessor:
             return {"error": f"FIXED processing failed: {str(e)}"}
     
     def _estimate_speech_ratio_fixed(self, pcm_data: bytes) -> float:
-        """FIXED: Speech detection with WebRTC VAD and fallbacks"""
+        """FIXED: Improved speech detection with better VAD and fallbacks"""
         try:
             audio_array = np.frombuffer(pcm_data, dtype=np.int16)
             
             if len(audio_array) == 0:
                 return 0.0
             
-            # Method 1: WebRTC VAD
+            # Method 1: WebRTC VAD (improved)
             if self.vad_enabled and self.vad:
                 try:
-                    frame_size = int(self.sample_rate * 0.030)  # 30ms frames
+                    frame_size = int(self.sample_rate * 0.020)  # 20ms frames (more stable)
                     speech_frames = 0
                     total_frames = 0
                     
@@ -349,33 +362,79 @@ class FixedAudioProcessor:
                         frame = audio_array[i:i + frame_size]
                         if len(frame) == frame_size:
                             frame_bytes = frame.astype(np.int16).tobytes()
-                            if self.vad.is_speech(frame_bytes, self.sample_rate):
-                                speech_frames += 1
+                            try:
+                                if self.vad.is_speech(frame_bytes, self.sample_rate):
+                                    speech_frames += 1
+                            except:
+                                pass  # Skip invalid frames
                             total_frames += 1
                     
                     if total_frames > 0:
-                        return speech_frames / total_frames
+                        vad_ratio = speech_frames / total_frames
+                        logger.debug(f"VAD speech ratio: {vad_ratio:.3f}")
+                        return vad_ratio
                         
                 except Exception as e:
                     logger.debug(f"VAD error: {e}")
             
-            # Method 2: Energy-based detection
-            rms_energy = np.sqrt(np.mean(audio_array.astype(np.float64) ** 2))
-            energy_ratio = min(1.0, rms_energy / 1000.0)
+            # Method 2: Enhanced energy-based detection
+            # Normalize audio to prevent overflow
+            audio_float = audio_array.astype(np.float64)
             
-            # Method 3: Zero crossing rate
+            # RMS energy
+            rms_energy = np.sqrt(np.mean(audio_float ** 2))
+            energy_threshold = 500.0  # Adjusted threshold
+            energy_ratio = min(1.0, max(0.0, (rms_energy - energy_threshold) / energy_threshold))
+            
+            # Method 3: Zero crossing rate (improved)
             zero_crossings = np.sum(np.diff(np.signbit(audio_array)))
-            zcr_normalized = zero_crossings / len(audio_array)
-            zcr_ratio = 1.0 if 0.01 <= zcr_normalized <= 0.5 else 0.5
+            zcr_normalized = zero_crossings / max(len(audio_array) - 1, 1)
             
-            # Combine methods
-            final_ratio = (energy_ratio * 0.7 + zcr_ratio * 0.3)
+            # Speech typically has ZCR between 0.01 and 0.3
+            if 0.005 <= zcr_normalized <= 0.5:
+                zcr_ratio = 1.0
+            elif zcr_normalized < 0.005:
+                zcr_ratio = 0.0  # Too low - likely silence
+            else:
+                zcr_ratio = max(0.0, 1.0 - (zcr_normalized - 0.5))
             
-            return min(1.0, final_ratio)
+            # Method 4: Spectral centroid (frequency distribution)
+            try:
+                # Simple spectral analysis
+                fft = np.fft.rfft(audio_float)
+                magnitude = np.abs(fft)
+                freqs = np.fft.rfftfreq(len(audio_float), 1.0/self.sample_rate)
+                
+                if np.sum(magnitude) > 0:
+                    spectral_centroid = np.sum(freqs * magnitude) / np.sum(magnitude)
+                    # Human speech typically between 80-800 Hz centroid
+                    if 50 <= spectral_centroid <= 1000:
+                        spectral_ratio = 1.0
+                    else:
+                        spectral_ratio = 0.3
+                else:
+                    spectral_ratio = 0.0
+            except:
+                spectral_ratio = 0.5  # Default if spectral analysis fails
+            
+            # Combine all methods with weights
+            final_ratio = (
+                energy_ratio * 0.4 +      # Energy is most important
+                zcr_ratio * 0.3 +         # ZCR for speech characteristics  
+                spectral_ratio * 0.3      # Spectral for frequency content
+            )
+            
+            # Apply bounds and smoothing
+            final_ratio = max(0.0, min(1.0, final_ratio))
+            
+            logger.debug(f"Speech detection - Energy: {energy_ratio:.3f}, ZCR: {zcr_ratio:.3f}, "
+                        f"Spectral: {spectral_ratio:.3f}, Final: {final_ratio:.3f}")
+            
+            return final_ratio
             
         except Exception as e:
             logger.error(f"FIXED speech ratio error: {e}")
-            return 0.3  # Conservative fallback
+            return 0.2  # Conservative fallback
     
     def _pcm_to_wav_fixed(self, pcm_data: bytes) -> bytes:
         """FIXED: PCM to WAV conversion"""
@@ -406,17 +465,23 @@ class FixedAudioProcessor:
             if mode == "transcribe" and self.transcribe_ffmpeg_process:
                 try:
                     self.transcribe_ffmpeg_process.terminate()
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(1.0)  # Give more time
                 except:
                     pass
                 self.transcribe_ffmpeg_process = None
             elif mode == "understand" and self.understand_ffmpeg_process:
                 try:
                     self.understand_ffmpeg_process.terminate()
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(1.0)
                 except:
                     pass
                 self.understand_ffmpeg_process = None
+            
+            # Clear buffer to start fresh
+            if mode == "transcribe":
+                self.transcribe_pcm_buffer.clear()
+            else:
+                self.understand_pcm_buffer.clear()
             
             # Restart
             await self.start_ffmpeg_decoder(mode, websocket)
@@ -449,7 +514,11 @@ class FixedAudioProcessor:
             "vad_enabled": self.vad_enabled,
             "active_connections": len(self.active_connections),
             "avg_processing_time_ms": round(avg_processing_time * 1000, 2),
-            "fixed_version": True
+            "fixed_version": True,
+            "transcribe_threshold_seconds": self.transcribe_threshold / (self.sample_rate * 2),
+            "understand_threshold_seconds": self.understand_threshold / (self.sample_rate * 2),
+            "speech_threshold": self.speech_threshold,
+            "min_speech_duration": self.min_speech_duration
         }
     
     def reset(self):
@@ -486,7 +555,7 @@ class FixedAudioProcessor:
                     
                     process.terminate()
                     try:
-                        await asyncio.wait_for(asyncio.to_thread(process.wait), timeout=5.0)
+                        await asyncio.wait_for(asyncio.to_thread(process.wait), timeout=10.0)
                     except asyncio.TimeoutError:
                         process.kill()
                         await asyncio.to_thread(process.wait)
@@ -500,12 +569,9 @@ class FixedAudioProcessor:
         
         # FIXED: Shutdown without timeout parameter
         try:
-            self.executor.shutdown(wait=True)  # Removed timeout parameter
+            self.executor.shutdown(wait=True)
         except Exception as e:
             logger.error(f"FIXED executor shutdown error: {e}")
         
         self.reset()
         logger.info("✅ FIXED audio processor fully cleaned up")
-
-# Create alias for backwards compatibility
-AudioProcessor = FixedAudioProcessor
