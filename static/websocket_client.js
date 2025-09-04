@@ -1,4 +1,4 @@
-// FIXED WEBSOCKET CLIENT - HANDLES UNIFIED APPROACH WITH ROBUST ERROR HANDLING
+// CONTINUOUS STREAMING WEBSOCKET CLIENT - websocket_client.js - FIXED FOR UNDERSTANDING MODE
 class VoxtralClient {
     constructor() {
         this.websocket = null;
@@ -8,14 +8,14 @@ class VoxtralClient {
         this.audioStream = null;
         this.serviceType = 'transcribe';
         
-        // Enhanced audio configuration
+        // CONTINUOUS STREAMING: Enhanced audio configuration
         this.audioConfig = {
             sampleRate: 16000,
             channels: 1,
             mimeType: 'audio/webm;codecs=opus'
         };
         
-        // Connection retry configuration
+        // Connection retry configuration  
         this.maxRetries = 3;
         this.retryDelay = 2000;
         this.currentRetries = 0;
@@ -28,7 +28,7 @@ class VoxtralClient {
         // Get DOM elements
         this.elements = {
             connectBtn: document.getElementById('connect-btn'),
-            recordBtn: document.getElementById('record-btn'),
+            recordBtn: document.getElementById('record-btn'), 
             disconnectBtn: document.getElementById('disconnect-btn'),
             serviceType: document.getElementById('service-type'),
             textQuery: document.getElementById('text-query'),
@@ -42,7 +42,7 @@ class VoxtralClient {
             logsContainer: document.getElementById('logs-container')
         };
         
-        // Bind event listeners with error handling
+        // Bind event listeners
         this.elements.connectBtn.addEventListener('click', () => this.connect());
         this.elements.disconnectBtn.addEventListener('click', () => this.disconnect());
         this.elements.recordBtn.addEventListener('click', () => this.toggleRecording());
@@ -50,6 +50,11 @@ class VoxtralClient {
         this.elements.serviceType.addEventListener('change', (e) => {
             this.serviceType = e.target.value;
             this.toggleQuerySection();
+            
+            // If switching to understanding mode while recording, restart recording
+            if (this.isRecording && this.serviceType === 'understand') {
+                this.log('Switching to CONTINUOUS STREAMING understanding mode', 'info');
+            }
         });
         
         this.toggleQuerySection();
@@ -58,6 +63,10 @@ class VoxtralClient {
     toggleQuerySection() {
         const isUnderstanding = this.serviceType === 'understand';
         this.elements.querySection.style.display = isUnderstanding ? 'block' : 'none';
+        
+        if (isUnderstanding) {
+            this.elements.textQuery.value = 'Please respond naturally to what I said';
+        }
     }
     
     async loadSystemInfo() {
@@ -71,11 +80,13 @@ class VoxtralClient {
             
             this.elements.systemInfo.innerHTML = `
                 <div><strong>Model:</strong> ${info.model_name}</div>
+                <div><strong>Architecture:</strong> ${info.architecture || 'CONTINUOUS_STREAMING_WITH_GAP_DETECTION'}</div>
                 <div><strong>Device:</strong> ${info.device}</div>
                 <div><strong>Parameters:</strong> ${info.model_size}</div>
                 <div><strong>Context Length:</strong> ${info.context_length}</div>
+                <div><strong>Gap Threshold:</strong> 300ms</div>
+                <div><strong>Target Latency:</strong> &lt;200ms</div>
                 <div><strong>Languages:</strong> ${info.supported_languages.join(', ')}</div>
-                <div><strong>Processing:</strong> ${info.audio_processing}</div>
             `;
             
             this.updateStatus('model', 'loaded', 'loaded');
@@ -95,19 +106,19 @@ class VoxtralClient {
     async connect() {
         if (this.isConnected) return;
         
-        this.log(`Connecting to ${this.serviceType} service...`, 'info');
+        this.log(`Connecting to CONTINUOUS STREAMING ${this.serviceType} service...`, 'info');
         
         try {
             const wsUrl = this.getWebSocketURL();
             this.websocket = new WebSocket(wsUrl);
             
-            // Set up event handlers with robust error handling
+            // Set up event handlers
             this.websocket.onopen = () => {
                 this.isConnected = true;
                 this.currentRetries = 0;
                 this.updateStatus('connection', 'connected', 'connected');
                 this.updateButtons();
-                this.log(`✅ Connected to ${this.serviceType} service`, 'success');
+                this.log(`✅ Connected to CONTINUOUS STREAMING ${this.serviceType} service`, 'success');
             };
             
             this.websocket.onmessage = (event) => {
@@ -120,7 +131,7 @@ class VoxtralClient {
             };
             
             this.websocket.onerror = (error) => {
-                this.log('WebSocket error occurred', 'error');
+                this.log('CONTINUOUS STREAMING WebSocket error occurred', 'error');
                 console.error('WebSocket error:', error);
             };
             
@@ -130,9 +141,9 @@ class VoxtralClient {
                 this.updateButtons();
                 
                 if (event.wasClean) {
-                    this.log('Connection closed cleanly', 'info');
+                    this.log('CONTINUOUS STREAMING connection closed cleanly', 'info');
                 } else {
-                    this.log(`Connection lost (code: ${event.code})`, 'warning');
+                    this.log(`CONTINUOUS STREAMING connection lost (code: ${event.code})`, 'warning');
                     
                     // Auto-reconnect logic
                     if (this.currentRetries < this.maxRetries) {
@@ -150,7 +161,7 @@ class VoxtralClient {
             };
             
         } catch (error) {
-            this.log('Connection failed: ' + error.message, 'error');
+            this.log('CONTINUOUS STREAMING connection failed: ' + error.message, 'error');
             this.updateStatus('connection', 'error', 'error');
         }
     }
@@ -158,7 +169,7 @@ class VoxtralClient {
     disconnect() {
         if (!this.isConnected) return;
         
-        this.log('Disconnecting...', 'info');
+        this.log('Disconnecting from CONTINUOUS STREAMING...', 'info');
         this.currentRetries = this.maxRetries; // Prevent auto-reconnect
         
         if (this.isRecording) {
@@ -181,14 +192,14 @@ class VoxtralClient {
     
     async startRecording() {
         if (!this.isConnected) {
-            this.log('Not connected to service', 'error');
+            this.log('Not connected to CONTINUOUS STREAMING service', 'error');
             return;
         }
         
         try {
-            this.log('Starting audio recording...', 'info');
+            this.log(`Starting CONTINUOUS STREAMING ${this.serviceType} recording...`, 'info');
             
-            // Request microphone access with enhanced constraints
+            // Request microphone access
             this.audioStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     sampleRate: this.audioConfig.sampleRate,
@@ -199,10 +210,9 @@ class VoxtralClient {
                 }
             });
             
-            // Check if the desired MIME type is supported
+            // Check MIME type support
             let mimeType = this.audioConfig.mimeType;
             if (!MediaRecorder.isTypeSupported(mimeType)) {
-                // Fallback options
                 const fallbacks = [
                     'audio/webm;codecs=opus',
                     'audio/webm',
@@ -218,12 +228,12 @@ class VoxtralClient {
                 }
             }
             
-            // Create media recorder with robust error handling
+            // Create media recorder
             this.mediaRecorder = new MediaRecorder(this.audioStream, {
                 mimeType: mimeType
             });
             
-            // Handle audio data
+            // CONTINUOUS STREAMING: Handle audio data for both modes
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data && event.data.size > 0 && this.isConnected) {
                     this.sendAudioData(event.data);
@@ -235,23 +245,27 @@ class VoxtralClient {
                 this.stopRecording();
             };
             
-            // Start recording with appropriate interval
-            const recordingInterval = this.serviceType === 'transcribe' ? 500 : 1000;
+            // CONTINUOUS STREAMING: Different intervals for different modes
+            const recordingInterval = this.serviceType === 'transcribe' ? 500 : 100; // Faster for understanding
             this.mediaRecorder.start(recordingInterval);
             
             this.isRecording = true;
             this.updateStatus('audio', 'recording', 'recording');
             this.updateButtons();
-            this.log(`Recording started (${mimeType})`, 'success');
+            this.log(`CONTINUOUS STREAMING ${this.serviceType} recording started (${mimeType})`, 'success');
+            
+            if (this.serviceType === 'understand') {
+                this.log('🧠 CONTINUOUS STREAMING: Speak now, I will respond after 300ms silence gap', 'info');
+            }
             
         } catch (error) {
-            this.log('Failed to start recording: ' + error.message, 'error');
+            this.log('Failed to start CONTINUOUS STREAMING recording: ' + error.message, 'error');
             this.updateStatus('audio', 'error', 'error');
         }
     }
     
     stopRecording() {
-        this.log('Stopping audio recording...', 'info');
+        this.log('Stopping CONTINUOUS STREAMING recording...', 'info');
         
         try {
             if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
@@ -269,10 +283,10 @@ class VoxtralClient {
             this.isRecording = false;
             this.updateStatus('audio', 'stopped', 'not recording');
             this.updateButtons();
-            this.log('Recording stopped', 'info');
+            this.log('CONTINUOUS STREAMING recording stopped', 'info');
             
         } catch (error) {
-            this.log('Error stopping recording: ' + error.message, 'error');
+            this.log('Error stopping CONTINUOUS STREAMING recording: ' + error.message, 'error');
         }
     }
     
@@ -283,28 +297,14 @@ class VoxtralClient {
                 return;
             }
             
-            if (this.serviceType === 'transcribe') {
-                // Send raw binary audio data for transcription
-                const arrayBuffer = await audioBlob.arrayBuffer();
-                if (arrayBuffer.byteLength > 0) {
-                    this.websocket.send(arrayBuffer);
-                }
-            } else {
-                // For understanding, send JSON with base64 audio and query
-                const arrayBuffer = await audioBlob.arrayBuffer();
-                if (arrayBuffer.byteLength > 0) {
-                    const audioData = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-                    
-                    const message = {
-                        audio: audioData,
-                        text: this.elements.textQuery.value || 'What can you hear in this audio?'
-                    };
-                    
-                    this.websocket.send(JSON.stringify(message));
-                }
+            // CONTINUOUS STREAMING: Both modes use binary streaming now
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            if (arrayBuffer.byteLength > 0) {
+                this.websocket.send(arrayBuffer);
             }
+            
         } catch (error) {
-            this.log('Failed to send audio data: ' + error.message, 'error');
+            this.log('Failed to send CONTINUOUS STREAMING audio data: ' + error.message, 'error');
         }
     }
     
@@ -315,7 +315,7 @@ class VoxtralClient {
         }
         
         if (data.error) {
-            this.log('Service error: ' + data.error, 'error');
+            this.log('CONTINUOUS STREAMING service error: ' + data.error, 'error');
             this.addResult('error', `❌ ${data.error}`, new Date());
             return;
         }
@@ -323,10 +323,24 @@ class VoxtralClient {
         // Handle successful results
         if (data.type === 'transcription' && data.text) {
             this.addResult('transcription', data.text, new Date());
-            this.log('✅ Transcription received', 'success');
+            this.log('✅ CONTINUOUS STREAMING transcription received', 'success');
         } else if (data.type === 'understanding' && data.response) {
-            this.addResult('understanding', data.response, new Date());
-            this.log('✅ Understanding response received', 'success');
+            // Show performance metrics if available
+            let performanceInfo = '';
+            if (data.performance) {
+                const totalTime = data.performance.total_time_ms;
+                const isUnder200ms = totalTime < 200;
+                const performanceIcon = isUnder200ms ? '🚀' : '⏱️';
+                performanceInfo = ` ${performanceIcon} ${totalTime.toFixed(0)}ms`;
+            }
+            
+            this.addResult('understanding', data.response + performanceInfo, new Date());
+            this.log(`✅ CONTINUOUS STREAMING understanding response received${performanceInfo}`, 'success');
+            
+            // Show transcription if available
+            if (data.transcription) {
+                this.log(`📝 Transcribed: "${data.transcription}"`, 'info');
+            }
         }
     }
     
@@ -337,11 +351,11 @@ class VoxtralClient {
             noResults.remove();
         }
         
-        // Create result element with enhanced styling
+        // Create result element
         const resultElement = document.createElement('div');
         resultElement.className = 'result-item';
         
-        // Color coding based on type
+        // Color coding
         let typeClass = 'result-transcription';
         if (type === 'understanding') typeClass = 'result-understanding';
         if (type === 'error') typeClass = 'result-error';
@@ -357,9 +371,9 @@ class VoxtralClient {
         // Add to container (newest first)
         this.elements.resultsContainer.insertBefore(resultElement, this.elements.resultsContainer.firstChild);
         
-        // Keep only last 15 results
+        // Keep only last 20 results
         const results = this.elements.resultsContainer.querySelectorAll('.result-item');
-        if (results.length > 15) {
+        if (results.length > 20) {
             results[results.length - 1].remove();
         }
     }
@@ -399,24 +413,25 @@ class VoxtralClient {
         
         this.elements.logsContainer.insertBefore(logElement, this.elements.logsContainer.firstChild);
         
-        // Keep only last 100 log entries
+        // Keep only last 150 log entries
         const logs = this.elements.logsContainer.querySelectorAll('.log-entry');
-        if (logs.length > 100) {
+        if (logs.length > 150) {
             logs[logs.length - 1].remove();
         }
         
         // Auto scroll to latest
         this.elements.logsContainer.scrollTop = 0;
         
-        console.log(`[${level.toUpperCase()}] ${message}`);
+        console.log(`[CONTINUOUS STREAMING ${level.toUpperCase()}] ${message}`);
     }
 }
 
-// Initialize client when page loads with error handling
+// Initialize client when page loads
 document.addEventListener('DOMContentLoaded', () => {
     try {
         window.voxtralClient = new VoxtralClient();
+        console.log('✅ CONTINUOUS STREAMING Voxtral client initialized');
     } catch (error) {
-        console.error('Failed to initialize Voxtral client:', error);
+        console.error('Failed to initialize CONTINUOUS STREAMING Voxtral client:', error);
     }
 });
