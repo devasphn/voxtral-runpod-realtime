@@ -7,14 +7,17 @@ import tempfile
 import os
 import wave
 import base64
+import numpy as np
 
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
-import numpy as np
+from mistral_common.protocol.transcription.request import TranscriptionRequest
+from mistral_common.protocol.instruct.messages import RawAudio
+from mistral_common.audio import Audio
 
 logger = logging.getLogger(__name__)
 
 class VoxtralModelManager:
-    """Manages Voxtral Mini 3B model loading and inference"""
+    """Manages Voxtral Mini 3B model loading and inference with VAD"""
     
     def __init__(
         self, 
@@ -103,7 +106,7 @@ class VoxtralModelManager:
                 wav_file.setframerate(16000)  # 16kHz
                 wav_file.writeframes(audio_array.tobytes())
             
-            logger.info(f"Created WAV file from raw PCM data: {len(audio_bytes)} bytes -> {temp_path}")
+            logger.info(f"✅ Created WAV file: {len(audio_bytes)} bytes -> {temp_path}")
             return temp_path
             
         except Exception as e:
@@ -111,7 +114,7 @@ class VoxtralModelManager:
             raise RuntimeError(f"Audio processing failed: {e}")
     
     async def transcribe_audio(self, audio_data: bytes) -> Dict[str, Any]:
-        """Transcribe audio data to text"""
+        """Transcribe audio data to text using proper Voxtral transcription API"""
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
@@ -120,29 +123,43 @@ class VoxtralModelManager:
             # Convert bytes to WAV file
             temp_path = self._bytes_to_wav_file(audio_data)
             
-            # Use the processor's transcription method with correct language code
-            inputs = self.processor.apply_transcription_request(
+            # Create Mistral Audio object
+            audio = Audio.from_file(temp_path, strict=False)
+            raw_audio = RawAudio.from_audio(audio)
+            
+            # Create proper transcription request
+            transcription_request = TranscriptionRequest(
+                model=self.model_name,
+                audio=raw_audio,
+                language="en",
+                temperature=0.0
+            )
+            
+            # Convert to inputs for the model
+            inputs = transcription_request.to_openai(exclude=("top_p", "seed"))
+            
+            # Apply processor for transcription
+            model_inputs = self.processor.apply_transcription_request(
                 audio=temp_path,
-                language="en",  # FIXED: Use valid language code instead of "auto"
+                language="en",
                 model_id=self.model_name,
                 return_tensors="pt"
             )
             
-            # Move inputs to device
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            # Move to device
+            model_inputs = {k: v.to(self.device) for k, v in model_inputs.items()}
             
             # Generate transcription
             with torch.no_grad():
                 outputs = self.model.generate(
-                    **inputs,
+                    **model_inputs,
                     max_new_tokens=512,
                     do_sample=False,
-                    temperature=0.0,
                     pad_token_id=self.processor.tokenizer.pad_token_id or self.processor.tokenizer.eos_token_id
                 )
             
             # Decode output
-            input_length = inputs['input_ids'].shape[1]
+            input_length = model_inputs['input_ids'].shape[1]
             generated_tokens = outputs[0][input_length:]
             decoded_output = self.processor.tokenizer.decode(
                 generated_tokens, 
@@ -152,6 +169,8 @@ class VoxtralModelManager:
             # Clean up temp file
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
+            
+            logger.info(f"✅ Transcription result: {decoded_output[:50]}...")
             
             return {
                 "type": "transcription",
@@ -172,7 +191,7 @@ class VoxtralModelManager:
             return {"error": f"Transcription failed: {str(e)}"}
     
     async def understand_audio(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Process audio with understanding capabilities"""
+        """Process audio with understanding capabilities using correct format"""
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
@@ -197,13 +216,19 @@ class VoxtralModelManager:
             # Convert to WAV file
             temp_path = self._bytes_to_wav_file(audio_bytes)
             
-            # Create conversation with audio and text using proper format
+            # Create conversation with audio and text using CORRECT Voxtral format
             conversation = [
                 {
                     "role": "user",
                     "content": [
-                        {"type": "audio", "audio": temp_path},
-                        {"type": "text", "text": text_query}
+                        {
+                            "type": "input_audio",  # FIXED: Use "input_audio" not "audio"
+                            "input_audio": temp_path
+                        },
+                        {
+                            "type": "text", 
+                            "text": text_query
+                        }
                     ]
                 }
             ]
@@ -239,6 +264,8 @@ class VoxtralModelManager:
             # Clean up temp file
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
+            
+            logger.info(f"✅ Understanding result: {decoded_output[:50]}...")
             
             return {
                 "type": "understanding",
