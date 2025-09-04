@@ -1,4 +1,4 @@
-# PERFECT MODEL LOADER - UNIFIED APPROACH FOR BOTH MODES
+# FIXED MODEL LOADER - UNIFIED APPROACH FOR BOTH MODES  
 import asyncio
 import logging
 import torch
@@ -14,8 +14,8 @@ from transformers import VoxtralForConditionalGeneration, AutoProcessor
 
 logger = logging.getLogger(__name__)
 
-class PerfectVoxtralModelManager:
-    """PERFECT: Unified Voxtral model manager with robust audio processing"""
+class VoxtralModelManager:
+    """FIXED: Unified Voxtral model manager with robust audio processing"""
     
     def __init__(
         self, 
@@ -35,7 +35,7 @@ class PerfectVoxtralModelManager:
         self.is_loaded = False
         self.model_info = {}
         
-        logger.info(f"Initialized PerfectVoxtralModelManager for {model_name} on {self.device}")
+        logger.info(f"Initialized VoxtralModelManager for {model_name} on {self.device}")
     
     async def load_model(self) -> None:
         """Load Voxtral model and processor with error handling"""
