@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
     if model_manager: await model_manager.cleanup()
     logger.info("✅ FINAL PERFECTED graceful shutdown completed")
 
-app = FastAPI(title="Voxtral Mini 3B - FINAL PERFECTED API", version="4.0.0-STABLE", lifespan=lifespan)
+app = FastAPI(title="Voxtral Mini 3B - FINAL PERFECTED API", version="5.0.0-GOLD", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # --- HTTP Endpoints ---
@@ -80,82 +80,4 @@ async def model_info():
 # --- WebSocket Endpoint: Understanding (with Gap Detection) ---
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
-    await ws_manager.connect(websocket, "understand")
-    conversation_manager.start_conversation(websocket)
-    
-    conn_context = {
-        "pcm_buffer": bytearray(), "last_speech_time": time.time(),
-        "processing": False, "user_query": "Please respond naturally.",
-        "min_buffer_size": int(16000 * 2 * 0.25) # Min 0.25s of audio for meaningful transcription
-    }
-
-    async def process_audio_chunk(audio_chunk: bytes, reason: str):
-        if len(audio_chunk) < conn_context["min_buffer_size"]: return
-        logger.info(f"🧠 Processing {len(audio_chunk)} bytes of audio. Reason: {reason}.")
-        
-        start_time = time.time()
-        trans_result = await model_manager.transcribe_audio_pure(audio_chunk)
-        if "error" in trans_result or not trans_result.get("text", "").strip():
-            logger.warning(f"Skipping empty/failed transcription: {trans_result}")
-            return
-
-        text = trans_result["text"]
-        logger.info(f"🎤 Transcribed in {(time.time() - start_time)*1000:.0f}ms: '{text}'")
-        
-        context = conversation_manager.get_conversation_context(websocket)
-        response = await model_manager.generate_understanding_response(
-            transcribed_text=text, user_query=conn_context["user_query"], context=context
-        )
-
-        if "error" not in response:
-            conversation_manager.add_turn(
-                websocket, transcription=text, response=response.get("response", ""), mode="understand"
-            )
-            try:
-                await websocket.send_json(response)
-                logger.info(f"🚀 LLM response sent in {(time.time() - start_time)*1000:.0f}ms (end-to-end)")
-            except WebSocketDisconnect:
-                logger.warning("Client disconnected during message send.")
-
-    async def gap_detection_task():
-        while not shutdown_event.is_set() and websocket.client_state.name == 'CONNECTED':
-            await asyncio.sleep(0.1)
-            
-            silence_ms = (time.time() - conn_context["last_speech_time"]) * 1000
-            
-            if not conn_context["processing"] and len(conn_context["pcm_buffer"]) > conn_context["min_buffer_size"] and silence_ms > 300:
-                conn_context["processing"] = True
-                audio_to_process = conn_context["pcm_buffer"]
-                conn_context["pcm_buffer"] = bytearray()
-                try:
-                    await process_audio_chunk(bytes(audio_to_process), reason=f"Gap ({silence_ms:.0f}ms)")
-                finally:
-                    conn_context["processing"] = False # CRITICAL: Always reset the flag
-
-    gap_task = asyncio.create_task(gap_detection_task())
-
-    try:
-        while not shutdown_event.is_set():
-            message = await websocket.receive()
-            if message["type"] == "websocket.disconnect": break
-            
-            if "text" in message:
-                try:
-                    data = json.loads(message["text"])
-                    if "query" in data: conn_context["user_query"] = data["query"]
-                except json.JSONDecodeError: pass
-            elif "bytes" in message:
-                result = await audio_processor.process_webm_chunk_understand(message["bytes"])
-                if result and "pcm_data" in result:
-                    conn_context["pcm_buffer"].extend(result["pcm_data"])
-                    if result["speech_detected"]:
-                        conn_context["last_speech_time"] = time.time()
-    except WebSocketDisconnect:
-        logger.info("Client disconnected.")
-    finally:
-        gap_task.cancel()
-        if not conn_context["processing"] and len(conn_context["pcm_buffer"]) > conn_context["min_buffer_size"]:
-             logger.info("Client disconnected, performing final flush of audio buffer.")
-             await process_audio_chunk(bytes(conn_context["pcm_buffer"]), reason="Final flush")
-        conversation_manager.cleanup_conversation(websocket)
-        ws_manager.disconnect(websocket)
+    await ws_manager.connect(websocket, "unders
