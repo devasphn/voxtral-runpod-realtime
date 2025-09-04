@@ -1,4 +1,4 @@
-// CONTINUOUS STREAMING WEBSOCKET CLIENT - websocket_client.js - FIXED FOR UNDERSTANDING MODE
+// FINAL PERFECT CLIENT - websocket_client.js - FIXED QUERY SPAM ISSUE
 class VoxtralClient {
     constructor() {
         this.websocket = null;
@@ -8,7 +8,7 @@ class VoxtralClient {
         this.audioStream = null;
         this.serviceType = 'transcribe';
         
-        // CONTINUOUS STREAMING: Enhanced audio configuration
+        // FINAL PERFECT: Enhanced audio configuration
         this.audioConfig = {
             sampleRate: 16000,
             channels: 1,
@@ -19,6 +19,10 @@ class VoxtralClient {
         this.maxRetries = 3;
         this.retryDelay = 2000;
         this.currentRetries = 0;
+        
+        // FINAL PERFECT FIX: Track if query was sent to prevent spam
+        this.querySent = false;
+        this.lastQuerySent = '';
         
         this.initializeUI();
         this.loadSystemInfo();
@@ -51,9 +55,19 @@ class VoxtralClient {
             this.serviceType = e.target.value;
             this.toggleQuerySection();
             
-            // If switching to understanding mode while recording, restart recording
+            // FINAL PERFECT FIX: Reset query sent flag when switching modes
+            this.querySent = false;
+            this.lastQuerySent = '';
+            
             if (this.isRecording && this.serviceType === 'understand') {
-                this.log('Switching to CONTINUOUS STREAMING understanding mode', 'info');
+                this.log('Switching to FINAL PERFECT understanding mode', 'info');
+            }
+        });
+        
+        // FINAL PERFECT FIX: Only send query when it actually changes
+        this.elements.textQuery.addEventListener('change', () => {
+            if (this.isConnected && this.serviceType === 'understand') {
+                this.sendQueryIfChanged();
             }
         });
         
@@ -69,6 +83,25 @@ class VoxtralClient {
         }
     }
     
+    // FINAL PERFECT FIX: Only send query when it changes
+    sendQueryIfChanged() {
+        const currentQuery = this.elements.textQuery.value.trim();
+        
+        if (currentQuery !== this.lastQuerySent && this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+            try {
+                const queryMessage = {
+                    query: currentQuery
+                };
+                
+                this.websocket.send(JSON.stringify(queryMessage));
+                this.lastQuerySent = currentQuery;
+                this.log(`Query updated: '${currentQuery}'`, 'info');
+            } catch (error) {
+                this.log('Failed to send query: ' + error.message, 'error');
+            }
+        }
+    }
+    
     async loadSystemInfo() {
         try {
             const response = await fetch('/model/info');
@@ -80,7 +113,7 @@ class VoxtralClient {
             
             this.elements.systemInfo.innerHTML = `
                 <div><strong>Model:</strong> ${info.model_name}</div>
-                <div><strong>Architecture:</strong> ${info.architecture || 'CONTINUOUS_STREAMING_WITH_GAP_DETECTION'}</div>
+                <div><strong>Architecture:</strong> ${info.architecture || 'FINAL_PERFECT_UNDERSTANDING_MODE'}</div>
                 <div><strong>Device:</strong> ${info.device}</div>
                 <div><strong>Parameters:</strong> ${info.model_size}</div>
                 <div><strong>Context Length:</strong> ${info.context_length}</div>
@@ -106,7 +139,7 @@ class VoxtralClient {
     async connect() {
         if (this.isConnected) return;
         
-        this.log(`Connecting to CONTINUOUS STREAMING ${this.serviceType} service...`, 'info');
+        this.log(`Connecting to FINAL PERFECT ${this.serviceType} service...`, 'info');
         
         try {
             const wsUrl = this.getWebSocketURL();
@@ -118,7 +151,15 @@ class VoxtralClient {
                 this.currentRetries = 0;
                 this.updateStatus('connection', 'connected', 'connected');
                 this.updateButtons();
-                this.log(`✅ Connected to CONTINUOUS STREAMING ${this.serviceType} service`, 'success');
+                this.log(`✅ Connected to FINAL PERFECT ${this.serviceType} service`, 'success');
+                
+                // FINAL PERFECT FIX: Send query only once after connection, only for understanding mode
+                if (this.serviceType === 'understand') {
+                    // Send query after a brief delay to ensure connection is stable
+                    setTimeout(() => {
+                        this.sendQueryIfChanged();
+                    }, 100);
+                }
             };
             
             this.websocket.onmessage = (event) => {
@@ -131,7 +172,7 @@ class VoxtralClient {
             };
             
             this.websocket.onerror = (error) => {
-                this.log('CONTINUOUS STREAMING WebSocket error occurred', 'error');
+                this.log('FINAL PERFECT WebSocket error occurred', 'error');
                 console.error('WebSocket error:', error);
             };
             
@@ -140,10 +181,14 @@ class VoxtralClient {
                 this.updateStatus('connection', 'disconnected', 'disconnected');
                 this.updateButtons();
                 
+                // FINAL PERFECT FIX: Reset query tracking on disconnect
+                this.querySent = false;
+                this.lastQuerySent = '';
+                
                 if (event.wasClean) {
-                    this.log('CONTINUOUS STREAMING connection closed cleanly', 'info');
+                    this.log('FINAL PERFECT connection closed cleanly', 'info');
                 } else {
-                    this.log(`CONTINUOUS STREAMING connection lost (code: ${event.code})`, 'warning');
+                    this.log(`FINAL PERFECT connection lost (code: ${event.code})`, 'warning');
                     
                     // Auto-reconnect logic
                     if (this.currentRetries < this.maxRetries) {
@@ -161,7 +206,7 @@ class VoxtralClient {
             };
             
         } catch (error) {
-            this.log('CONTINUOUS STREAMING connection failed: ' + error.message, 'error');
+            this.log('FINAL PERFECT connection failed: ' + error.message, 'error');
             this.updateStatus('connection', 'error', 'error');
         }
     }
@@ -169,12 +214,16 @@ class VoxtralClient {
     disconnect() {
         if (!this.isConnected) return;
         
-        this.log('Disconnecting from CONTINUOUS STREAMING...', 'info');
+        this.log('Disconnecting from FINAL PERFECT...', 'info');
         this.currentRetries = this.maxRetries; // Prevent auto-reconnect
         
         if (this.isRecording) {
             this.stopRecording();
         }
+        
+        // FINAL PERFECT FIX: Reset query tracking
+        this.querySent = false;
+        this.lastQuerySent = '';
         
         if (this.websocket) {
             this.websocket.close(1000, 'User disconnected');
@@ -192,12 +241,12 @@ class VoxtralClient {
     
     async startRecording() {
         if (!this.isConnected) {
-            this.log('Not connected to CONTINUOUS STREAMING service', 'error');
+            this.log('Not connected to FINAL PERFECT service', 'error');
             return;
         }
         
         try {
-            this.log(`Starting CONTINUOUS STREAMING ${this.serviceType} recording...`, 'info');
+            this.log(`Starting FINAL PERFECT ${this.serviceType} recording...`, 'info');
             
             // Request microphone access
             this.audioStream = await navigator.mediaDevices.getUserMedia({
@@ -233,7 +282,7 @@ class VoxtralClient {
                 mimeType: mimeType
             });
             
-            // CONTINUOUS STREAMING: Handle audio data for both modes
+            // FINAL PERFECT: Handle audio data for both modes
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data && event.data.size > 0 && this.isConnected) {
                     this.sendAudioData(event.data);
@@ -245,27 +294,27 @@ class VoxtralClient {
                 this.stopRecording();
             };
             
-            // CONTINUOUS STREAMING: Different intervals for different modes
+            // FINAL PERFECT: Different intervals for different modes
             const recordingInterval = this.serviceType === 'transcribe' ? 500 : 100; // Faster for understanding
             this.mediaRecorder.start(recordingInterval);
             
             this.isRecording = true;
             this.updateStatus('audio', 'recording', 'recording');
             this.updateButtons();
-            this.log(`CONTINUOUS STREAMING ${this.serviceType} recording started (${mimeType})`, 'success');
+            this.log(`FINAL PERFECT ${this.serviceType} recording started (${mimeType})`, 'success');
             
             if (this.serviceType === 'understand') {
-                this.log('🧠 CONTINUOUS STREAMING: Speak now, I will respond after 300ms silence gap', 'info');
+                this.log('🧠 FINAL PERFECT: Speak now, I will respond after 300ms silence gap', 'info');
             }
             
         } catch (error) {
-            this.log('Failed to start CONTINUOUS STREAMING recording: ' + error.message, 'error');
+            this.log('Failed to start FINAL PERFECT recording: ' + error.message, 'error');
             this.updateStatus('audio', 'error', 'error');
         }
     }
     
     stopRecording() {
-        this.log('Stopping CONTINUOUS STREAMING recording...', 'info');
+        this.log('Stopping FINAL PERFECT recording...', 'info');
         
         try {
             if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
@@ -283,10 +332,10 @@ class VoxtralClient {
             this.isRecording = false;
             this.updateStatus('audio', 'stopped', 'not recording');
             this.updateButtons();
-            this.log('CONTINUOUS STREAMING recording stopped', 'info');
+            this.log('FINAL PERFECT recording stopped', 'info');
             
         } catch (error) {
-            this.log('Error stopping CONTINUOUS STREAMING recording: ' + error.message, 'error');
+            this.log('Error stopping FINAL PERFECT recording: ' + error.message, 'error');
         }
     }
     
@@ -297,14 +346,14 @@ class VoxtralClient {
                 return;
             }
             
-            // CONTINUOUS STREAMING: Both modes use binary streaming now
+            // FINAL PERFECT: Both modes use binary streaming
             const arrayBuffer = await audioBlob.arrayBuffer();
             if (arrayBuffer.byteLength > 0) {
                 this.websocket.send(arrayBuffer);
             }
             
         } catch (error) {
-            this.log('Failed to send CONTINUOUS STREAMING audio data: ' + error.message, 'error');
+            this.log('Failed to send FINAL PERFECT audio data: ' + error.message, 'error');
         }
     }
     
@@ -315,7 +364,7 @@ class VoxtralClient {
         }
         
         if (data.error) {
-            this.log('CONTINUOUS STREAMING service error: ' + data.error, 'error');
+            this.log('FINAL PERFECT service error: ' + data.error, 'error');
             this.addResult('error', `❌ ${data.error}`, new Date());
             return;
         }
@@ -323,7 +372,7 @@ class VoxtralClient {
         // Handle successful results
         if (data.type === 'transcription' && data.text) {
             this.addResult('transcription', data.text, new Date());
-            this.log('✅ CONTINUOUS STREAMING transcription received', 'success');
+            this.log('✅ FINAL PERFECT transcription received', 'success');
         } else if (data.type === 'understanding' && data.response) {
             // Show performance metrics if available
             let performanceInfo = '';
@@ -335,7 +384,7 @@ class VoxtralClient {
             }
             
             this.addResult('understanding', data.response + performanceInfo, new Date());
-            this.log(`✅ CONTINUOUS STREAMING understanding response received${performanceInfo}`, 'success');
+            this.log(`✅ FINAL PERFECT understanding response received${performanceInfo}`, 'success');
             
             // Show transcription if available
             if (data.transcription) {
@@ -422,7 +471,7 @@ class VoxtralClient {
         // Auto scroll to latest
         this.elements.logsContainer.scrollTop = 0;
         
-        console.log(`[CONTINUOUS STREAMING ${level.toUpperCase()}] ${message}`);
+        console.log(`[FINAL PERFECT ${level.toUpperCase()}] ${message}`);
     }
 }
 
@@ -430,8 +479,8 @@ class VoxtralClient {
 document.addEventListener('DOMContentLoaded', () => {
     try {
         window.voxtralClient = new VoxtralClient();
-        console.log('✅ CONTINUOUS STREAMING Voxtral client initialized');
+        console.log('✅ FINAL PERFECT Voxtral client initialized');
     } catch (error) {
-        console.error('Failed to initialize CONTINUOUS STREAMING Voxtral client:', error);
+        console.error('Failed to initialize FINAL PERFECT Voxtral client:', error);
     }
 });
