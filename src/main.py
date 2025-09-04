@@ -1,4 +1,4 @@
-# FINAL COMPLETE FIX - main.py - ADDRESSES ALL LOG ISSUES
+# FINAL COMPLETE FIX - main.py - FIXED UNDERSTANDING MODE
 import asyncio
 import logging
 import signal
@@ -145,11 +145,11 @@ async def health_check():
             "conversation_sessions": len(conversation_manager.conversations),
             "fixes_applied": [
                 "✅ FINAL FIX: Pure transcription mode (no response generation)",
-                "✅ FINAL FIX: Proper understanding mode (transcribe first, then chat)",
+                "✅ FINAL FIX: Proper understanding mode (audio processor → transcribe → chat)",
                 "✅ FINAL FIX: Enhanced audio processing for human speech",
                 "✅ FINAL FIX: Fixed WebM→WAV conversion pipeline",
                 "✅ FINAL FIX: Proper temperature settings for each mode",
-                "✅ FINAL FIX: Better audio validation and error handling"
+                "✅ FINAL FIX: Understanding mode now uses audio processor properly"
             ],
             "system": system_info,
             "shutdown_requested": shutdown_event.is_set(),
@@ -188,12 +188,13 @@ async def model_info():
                 "purpose": "Conversational AI responses to audio",
                 "output": "AI assistant responses to user speech",
                 "temperature": 0.3,
-                "api_method": "transcribe + apply_chat_template"
+                "api_method": "audio_processor → transcribe + apply_chat_template",
+                "fixed": "Now uses audio processor for proper WebM handling"
             }
         },
         "final_fixes": [
             "✅ Transcription never generates responses - only exact speech",
-            "✅ Understanding properly transcribes first, then responds",
+            "✅ Understanding uses audio processor for proper WebM→PCM conversion",
             "✅ Fixed audio processing pipeline for human speech",
             "✅ Proper model API usage for each mode",
             "✅ Enhanced error handling and validation"
@@ -308,7 +309,7 @@ async def websocket_transcribe(websocket: WebSocket):
 
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
-    """FINAL FIXED: WebSocket understanding - TRANSCRIBE FIRST, THEN RESPOND"""
+    """FINAL FIXED: WebSocket understanding - NOW USES AUDIO PROCESSOR PROPERLY"""
     await ws_manager.connect(websocket, "understand")
     conversation_manager.start_conversation(websocket)
     
@@ -339,29 +340,20 @@ async def websocket_understand(websocket: WebSocket):
                     await websocket.send_json({"error": "No audio data provided", "final_fixed": True})
                     continue
                 
-                # FINAL FIX: Handle base64 audio data with better error handling
+                # FINAL FIX: Decode base64 audio data (WebM format from browser)
                 try:
                     if isinstance(audio_data, str):
                         # Remove data URL prefix if present
                         if audio_data.startswith("data:"):
                             audio_data = audio_data.split(",")[1] if "," in audio_data else audio_data
                         
-                        # FINAL FIX: Better base64 decoding with validation
-                        try:
-                            audio_bytes = base64.b64decode(audio_data)
-                        except Exception as b64_e:
-                            logger.error(f"Base64 decode error: {b64_e}")
-                            await websocket.send_json({
-                                "error": f"Invalid base64 audio data: {str(b64_e)}",
-                                "final_fixed": True
-                            })
-                            continue
+                        # Decode base64 to get WebM audio data
+                        webm_audio_bytes = base64.b64decode(audio_data)
                     else:
-                        # Handle bytes directly
-                        audio_bytes = audio_data if isinstance(audio_data, bytes) else bytes(audio_data)
+                        webm_audio_bytes = audio_data if isinstance(audio_data, bytes) else bytes(audio_data)
                         
-                    if len(audio_bytes) < 1000:  # Increased minimum size for better quality
-                        logger.warning(f"Decoded audio data too small: {len(audio_bytes)} bytes")
+                    if len(webm_audio_bytes) < 1000:  # Minimum size check
+                        logger.warning(f"Decoded audio data too small: {len(webm_audio_bytes)} bytes")
                         await websocket.send_json({
                             "error": "Audio data too small - need at least 1 second of audio",
                             "final_fixed": True
@@ -376,16 +368,48 @@ async def websocket_understand(websocket: WebSocket):
                     })
                     continue
                 
-                # FINAL FIX: Two-step process - TRANSCRIBE FIRST, THEN UNDERSTAND
-                logger.info(f"🧠 Processing understanding request: {len(audio_bytes)} bytes")
+                # FINAL FIX: Process WebM audio through audio processor (like transcription mode)
+                logger.info(f"🧠 Processing understanding request: {len(webm_audio_bytes)} bytes")
+                
+                # STEP 1: Process WebM audio through audio processor to get clean PCM
+                audio_result = await audio_processor.process_webm_chunk_transcribe(webm_audio_bytes, websocket)
+                
+                if not audio_result or "error" in audio_result:
+                    error_msg = audio_result.get("error", "Audio processing failed") if audio_result else "No audio result"
+                    logger.error(f"Audio processing failed: {error_msg}")
+                    await websocket.send_json({
+                        "error": f"Audio processing failed: {error_msg}",
+                        "final_fixed": True
+                    })
+                    continue
+                
+                if "audio_data" not in audio_result:
+                    logger.warning("No processed audio data available")
+                    await websocket.send_json({
+                        "error": "No processed audio data available",
+                        "final_fixed": True
+                    })
+                    continue
+                
+                # Check audio quality
+                duration_ms = audio_result.get("duration_ms", 0)
+                speech_ratio = audio_result.get("speech_ratio", 0)
+                
+                if duration_ms < 500 or speech_ratio < 0.2:  # Lower thresholds for understanding
+                    logger.warning(f"Low quality audio: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
+                    await websocket.send_json({
+                        "error": f"Audio quality too low (duration: {duration_ms:.0f}ms, speech: {speech_ratio:.3f})",
+                        "final_fixed": True
+                    })
+                    continue
                 
                 if model_manager and model_manager.is_loaded:
-                    # Get context
+                    # Get conversation context
                     context = conversation_manager.get_conversation_context(websocket)
                     
-                    # FINAL FIX: Step 1 - Transcribe the audio first
+                    # STEP 2: Transcribe the processed audio first
                     transcription_result = await model_manager.transcribe_audio_pure(
-                        audio_bytes,
+                        audio_result["audio_data"],  # Use processed audio data
                         language="en"
                     )
                     
@@ -395,9 +419,9 @@ async def websocket_understand(websocket: WebSocket):
                         len(transcription_result["text"].strip()) > 2):
                         
                         transcribed_text = transcription_result["text"].strip()
-                        logger.info(f"✅ Transcribed: '{transcribed_text}'")
+                        logger.info(f"✅ Transcribed for understanding: '{transcribed_text}'")
                         
-                        # FINAL FIX: Step 2 - Generate understanding response using chat template
+                        # STEP 3: Generate understanding response using chat template
                         understanding_result = await model_manager.generate_understanding_response(
                             transcribed_text=transcribed_text,
                             user_query=query,
@@ -417,6 +441,10 @@ async def websocket_understand(websocket: WebSocket):
                                 "query": query,
                                 "timestamp": asyncio.get_event_loop().time(),
                                 "language": transcription_result.get("language", "en"),
+                                "audio_quality": {
+                                    "duration_ms": duration_ms,
+                                    "speech_ratio": speech_ratio
+                                },
                                 "final_fixed": True
                             }
                             
@@ -425,8 +453,8 @@ async def websocket_understand(websocket: WebSocket):
                                 websocket,
                                 transcription=transcribed_text,
                                 response=understanding_result["response"],
-                                audio_duration=2.0,  # Estimate
-                                speech_ratio=1.0,    # Estimate
+                                audio_duration=duration_ms / 1000,
+                                speech_ratio=speech_ratio,
                                 mode="understand",
                                 language=transcription_result.get("language", "en")
                             )
@@ -436,7 +464,7 @@ async def websocket_understand(websocket: WebSocket):
                             final_result["conversation"] = conv_stats
                             
                             await websocket.send_json(final_result)
-                            logger.info(f"✅ FINAL FIXED UNDERSTOOD: '{transcribed_text}' → '{understanding_result['response'][:50]}...'")
+                            logger.info(f"✅ FINAL FIXED UNDERSTANDING: '{transcribed_text}' → '{understanding_result['response'][:50]}...'")
                         else:
                             logger.warning(f"Invalid understanding result: {understanding_result}")
                             await websocket.send_json({
@@ -546,12 +574,12 @@ async def debug_final_fixed():
         },
         "final_fixes_applied": [
             "✅ TRANSCRIPTION: Pure speech-to-text, no AI responses",
-            "✅ UNDERSTANDING: Two-step process (transcribe → respond)",
+            "✅ UNDERSTANDING: Fixed to use audio processor for proper WebM handling",
             "✅ AUDIO: Enhanced processing for human speech recognition",
             "✅ VALIDATION: Strict filtering of AI-generated artifacts",
             "✅ TEMPERATURE: Correct settings for each mode (0.0 vs 0.3)",
             "✅ API USAGE: Proper transcription_request vs chat_template",
-            "✅ ERROR HANDLING: Better audio validation and recovery"
+            "✅ UNDERSTANDING: Now processes WebM→PCM→transcribe→respond properly"
         ],
         "final_fixed": True
     }
