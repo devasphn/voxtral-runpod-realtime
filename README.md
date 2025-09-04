@@ -9,9 +9,9 @@ This project deploys Mistral's Voxtral Mini 3B model on RunPod with real-time We
 - **Volume Disk**: 30GB  
 - **Template**: PyTorch 2.8.0 + CUDA 12.4
 
-## Port Configuration
+## Port Configuration (Corrected)
 - **HTTP Ports**: 8000 (FastAPI), 8005 (Health Check)
-- **TCP Ports**: 8765 (WebSocket Transcription), 8766 (WebSocket Understanding)
+- **TCP Ports**: 8765 (WebSocket Streaming), 8766 (WebSocket Control)
 
 ## Quick Deploy on RunPod
 
@@ -21,4 +21,4 @@ This project deploys Mistral's Voxtral Mini 3B model on RunPod with real-time We
 # Container Disk: 50GB
 # Volume Disk: 30GB
 # Template: PyTorch 2.8.0
-# Expose Ports: 8000/http,8005/http,8765/tcp,8766/tcp
+# Expose Ports: 8000/http, 8005/http, 8765/tcp, 8766/tcp
