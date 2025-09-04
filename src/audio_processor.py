@@ -1,4 +1,4 @@
-# FIXED AUDIO PROCESSOR - UNIFIED APPROACH FOR BOTH MODES
+# FIXED AUDIO PROCESSOR - UNIFIED APPROACH WITH IMPROVED SPEECH DETECTION
 import asyncio
 import logging
 import numpy as np
@@ -36,7 +36,7 @@ class AudioProcessor:
         self.transcribe_pcm_buffer = bytearray()
         self.understand_pcm_buffer = bytearray()
         
-        # Audio ready thresholds
+        # Audio ready thresholds (reduced for better responsiveness)
         self.transcribe_threshold = sample_rate * 1  # 1 second for transcription
         self.understand_threshold = sample_rate * 2  # 2 seconds for understanding
         
@@ -213,12 +213,15 @@ class AudioProcessor:
             
             self.total_audio_length += duration_ms
             
-            logger.info(f"🎤 Processed {mode} PCM audio: {duration_ms:.0f}ms (Total: {self.total_audio_length:.1f}ms)")
+            # IMPROVED speech detection with better logging
+            speech_ratio = self._estimate_speech_ratio(audio_data)
+            
+            logger.info(f"🎤 Processed {mode} PCM audio: {duration_ms:.0f}ms (Total: {self.total_audio_length:.1f}ms) - Speech Ratio: {speech_ratio:.3f}")
             
             return {
                 "audio_data": wav_bytes,
                 "duration_ms": duration_ms,
-                "speech_ratio": self._estimate_speech_ratio(audio_data),
+                "speech_ratio": speech_ratio,
                 "sample_rate": self.sample_rate,
                 "channels": self.channels,
                 "mode": mode,
@@ -230,12 +233,22 @@ class AudioProcessor:
             return {"error": f"Processing failed: {str(e)}"}
     
     def _estimate_speech_ratio(self, pcm_data: bytes) -> float:
-        """Estimate speech activity ratio in audio"""
+        """IMPROVED: Estimate speech activity ratio with better thresholds"""
         try:
             # Convert PCM to numpy array
             audio_array = np.frombuffer(pcm_data, dtype=np.int16)
             
-            # Calculate energy-based VAD
+            if len(audio_array) == 0:
+                return 0.0
+            
+            # Calculate RMS energy for the entire audio
+            rms_energy = np.sqrt(np.mean(audio_array.astype(np.float64) ** 2))
+            
+            # MUCH lower threshold for better detection
+            # Typical silence RMS is < 100, speech is > 500
+            silence_threshold = 200  # Much lower than before
+            
+            # Calculate frame-based VAD with improved logic
             frame_size = int(self.sample_rate * 0.025)  # 25ms frames
             hop_size = int(self.sample_rate * 0.010)   # 10ms hop
             
@@ -244,18 +257,26 @@ class AudioProcessor:
             
             for i in range(0, len(audio_array) - frame_size, hop_size):
                 frame = audio_array[i:i + frame_size]
-                energy = np.sum(frame.astype(np.float64) ** 2)
+                frame_rms = np.sqrt(np.mean(frame.astype(np.float64) ** 2))
                 
-                # Simple energy threshold
-                if energy > 1000000:  # Adjust threshold as needed
+                # Much more lenient threshold
+                if frame_rms > silence_threshold:
                     speech_frames += 1
                 total_frames += 1
             
-            return speech_frames / max(total_frames, 1)
+            frame_ratio = speech_frames / max(total_frames, 1) if total_frames > 0 else 0.0
+            
+            # Return higher of RMS-based or frame-based detection
+            rms_ratio = min(1.0, rms_energy / 1000.0)  # Normalize to 0-1
+            final_ratio = max(frame_ratio, rms_ratio)
+            
+            logger.debug(f"Speech detection: RMS={rms_energy:.1f}, Frame ratio={frame_ratio:.3f}, Final={final_ratio:.3f}")
+            
+            return final_ratio
             
         except Exception as e:
             logger.error(f"Speech ratio estimation error: {e}")
-            return 1.0  # Assume speech if estimation fails
+            return 0.5  # Return moderate value if estimation fails
     
     def _pcm_to_wav(self, pcm_data: bytes) -> bytes:
         """Convert PCM data to WAV format"""
