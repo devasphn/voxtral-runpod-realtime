@@ -1,4 +1,4 @@
-# ENHANCED MAIN.PY - WITH CONVERSATION MEMORY AND ROBUST SHUTDOWN
+# FIXED MAIN.PY - WITH PROPER WEBSOCKET HANDLING AND ERROR RECOVERY
 import asyncio
 import logging
 import signal
@@ -18,10 +18,19 @@ import torch
 from config.settings import Settings
 from config.logging_config import setup_logging
 from src.websocket_handler import WebSocketManager
-from src.model_loader import VoxtralModelManager
-from src.audio_processor import AudioProcessor
-from src.conversation_manager import ConversationManager  # NEW
+from src.conversation_manager import ConversationManager
 from src.utils import get_system_info
+
+# FIXED: Import the corrected classes
+try:
+    from src.fixed_model_loader import VoxtralModelManager  # Use fixed version
+except ImportError:
+    from src.model_loader import VoxtralModelManager  # Fallback
+
+try:
+    from src.fixed_audio_processor import FixedAudioProcessor as AudioProcessor  # Use fixed version
+except ImportError:
+    from src.audio_processor import AudioProcessor  # Fallback
 
 # Initialize logging
 setup_logging()
@@ -33,34 +42,33 @@ settings = Settings()
 # Global managers
 model_manager = None
 ws_manager = WebSocketManager()
-conversation_manager = ConversationManager(max_turns=30, context_window_minutes=15)  # NEW
+conversation_manager = ConversationManager(max_turns=30, context_window_minutes=15)
 audio_processor = AudioProcessor(
     sample_rate=16000,
     channels=1,
-    chunk_duration_ms=30
+    chunk_duration_ms=30,
+    conversation_manager=conversation_manager
 )
 
-# Shutdown flag for graceful termination
+# Shutdown flag
 shutdown_event = asyncio.Event()
 
 def signal_handler(signum, frame):
-    """Handle shutdown signals gracefully"""
+    """Handle shutdown signals"""
     logger.info(f"🛑 Received signal {signum}, initiating graceful shutdown...")
     shutdown_event.set()
 
-# Register signal handlers
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan management with robust error handling and cleanup"""
+    """FIXED: Application lifespan with proper cleanup"""
     global model_manager
     
     # Startup
-    logger.info("🚀 Starting ENHANCED Voxtral Real-Time Server with Conversation Memory...")
+    logger.info("🚀 Starting FIXED Voxtral Real-Time Server...")
     
-    # Initialize model
     try:
         model_manager = VoxtralModelManager(
             model_name=settings.MODEL_NAME,
@@ -68,20 +76,18 @@ async def lifespan(app: FastAPI):
             torch_dtype=settings.TORCH_DTYPE
         )
         await model_manager.load_model()
-        logger.info("✅ Model loaded successfully!")
+        logger.info("✅ FIXED model loaded successfully!")
     except Exception as e:
-        logger.error(f"❌ Failed to load model: {e}")
-        raise RuntimeError(f"Model loading failed: {e}")
+        logger.error(f"❌ Failed to load FIXED model: {e}")
+        raise RuntimeError(f"FIXED model loading failed: {e}")
     
-    # Start background cleanup task
+    # Start background cleanup
     cleanup_task = asyncio.create_task(background_cleanup())
     
     yield
     
     # Shutdown
-    logger.info("🛑 Shutting down server...")
-    
-    # Set shutdown flag
+    logger.info("🛑 Shutting down FIXED server...")
     shutdown_event.set()
     
     # Cancel background tasks
@@ -96,29 +102,25 @@ async def lifespan(app: FastAPI):
         await model_manager.cleanup()
     await audio_processor.cleanup()
     
-    logger.info("✅ Graceful shutdown completed")
+    logger.info("✅ FIXED graceful shutdown completed")
 
 async def background_cleanup():
-    """Background task for periodic cleanup"""
+    """Background maintenance tasks"""
     while not shutdown_event.is_set():
         try:
-            # Cleanup old conversation data
             await asyncio.sleep(300)  # Every 5 minutes
-            
-            # Get connection count for health monitoring
             active_connections = ws_manager.connection_count
-            logger.debug(f"🔄 Background cleanup: {active_connections} active connections")
-            
+            logger.debug(f"🔄 FIXED background cleanup: {active_connections} active")
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error(f"Background cleanup error: {e}")
+            logger.error(f"FIXED background cleanup error: {e}")
 
 # Create FastAPI app
 app = FastAPI(
-    title="Voxtral Mini 3B - ENHANCED Real-Time API",
-    description="Enhanced system with conversation memory, robust shutdown, and multilingual support",
-    version="4.0.0",
+    title="Voxtral Mini 3B - FIXED Real-Time API",
+    description="FIXED system with proper error handling and language support",
+    version="4.0.1-FIXED",
     lifespan=lifespan
 )
 
@@ -134,7 +136,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Enhanced health check endpoint"""
+    """FIXED: Health check endpoint"""
     try:
         system_info = get_system_info()
         model_status = "loaded" if model_manager and model_manager.is_loaded else "not_loaded"
@@ -144,25 +146,24 @@ async def health_check():
             "model_status": model_status,
             "active_connections": ws_manager.connection_count,
             "conversation_sessions": len(conversation_manager.conversations),
-            "enhancements": [
-                "✅ Conversation Memory System",
-                "✅ Robust Shutdown Handling", 
-                "✅ Multilingual Code-Switching Support",
-                "✅ Long Conversation Context",
-                "✅ Enhanced Speech Detection",
-                "✅ WebSocket Health Monitoring"
+            "fixes_applied": [
+                "✅ Correct Language Codes (ISO 639-1)",
+                "✅ Fixed ThreadPool Shutdown",
+                "✅ Improved WebSocket Handling",
+                "✅ Better FFmpeg Streaming",
+                "✅ Enhanced Error Recovery"
             ],
             "system": system_info,
             "shutdown_requested": shutdown_event.is_set(),
             "timestamp": asyncio.get_event_loop().time()
         }
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.error(f"FIXED health check failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/model/info")
 async def model_info():
-    """Get enhanced model information"""
+    """FIXED: Model information"""
     if not model_manager or not model_manager.is_loaded:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
@@ -172,78 +173,72 @@ async def model_info():
         "device": str(settings.DEVICE),
         "dtype": str(settings.TORCH_DTYPE),
         "context_length": "32K tokens",
-        "conversation_support": "Enhanced with memory and context preservation",
-        "multilingual_features": [
-            "🌍 Code-switching detection (Hindi-English)",
-            "🔄 Language pattern tracking",
-            "🗣️ Mixed language conversation handling",
-            "🧠 Context-aware responses"
-        ],
+        "fixes_applied": "FIXED version with proper language handling",
         "supported_languages": [
-            "English", "Spanish", "French", "Portuguese", 
-            "Hindi", "German", "Dutch", "Italian", "Mixed (Hindi-English)"
+            "English (en)", "Spanish (es)", "French (fr)", "Portuguese (pt)", 
+            "Hindi (hi)", "German (de)", "Dutch (nl)", "Italian (it)"
         ],
-        "enhanced_capabilities": [
-            "✅ Long conversation memory (up to 15 minutes context)",
-            "✅ Conversation turn tracking and analysis", 
-            "✅ Code-switching detection and handling",
-            "✅ Context-aware responses in understanding mode",
-            "✅ Improved speech detection with lower thresholds",
-            "✅ Robust WebSocket connection management"
+        "fixed_capabilities": [
+            "✅ Valid ISO 639-1 language codes",
+            "✅ Proper error handling and recovery",
+            "✅ Improved audio processing pipeline",
+            "✅ Better WebSocket streaming",
+            "✅ Enhanced conversation memory"
         ]
     }
 
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
-    """ENHANCED TRANSCRIPTION: Speech → Text with conversation memory"""
+    """FIXED: WebSocket transcription with proper error handling"""
     await ws_manager.connect(websocket, "transcribe")
     conversation_manager.start_conversation(websocket)
     
     try:
-        logger.info("🎤 Enhanced transcription session started with conversation memory")
+        logger.info("🎤 FIXED transcription session started")
         
         while not shutdown_event.is_set():
             try:
-                # Receive WebM audio from browser with validation
+                # FIXED: Receive audio data with validation
                 data = await websocket.receive_bytes()
                 
-                # Check for shutdown
                 if shutdown_event.is_set():
                     await websocket.send_json({"info": "Server shutting down"})
                     break
                 
-                # Validate data
-                if not data or len(data) < 10:
-                    logger.warning("Received invalid/empty audio data")
+                # FIXED: Better data validation
+                if not data or len(data) < 50:  # Minimum WebM chunk size
+                    logger.debug("Invalid/insufficient audio data received")
                     continue
                 
-                # Process WebM chunk through unified FFmpeg streaming
-                result = await audio_processor.process_webm_chunk_transcribe(data)
+                # FIXED: Process through corrected audio processor
+                result = await audio_processor.process_webm_chunk_transcribe(data, websocket)
                 
                 if result and "audio_data" in result:
                     duration_ms = result.get("duration_ms", 0)
                     speech_ratio = result.get("speech_ratio", 0)
                     
-                    # ENHANCED: Much more sensitive thresholds for better detection
-                    if duration_ms > 200 and speech_ratio > 0.05:  # Even more lenient
-                        logger.info(f"🎤 TRANSCRIBING with conversation context ({duration_ms:.0f}ms, speech: {speech_ratio:.3f})")
+                    # FIXED: More permissive thresholds
+                    if duration_ms > 200 and speech_ratio > 0.05:
+                        logger.info(f"🎤 FIXED TRANSCRIBING: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
                         
                         if model_manager and model_manager.is_loaded:
-                            # Get conversation context for better transcription
+                            # Get context
                             context = conversation_manager.get_conversation_context(websocket)
                             
-                            # Use TRANSCRIPTION mode - ASR only
+                            # FIXED: Use corrected transcription
                             transcription_result = await model_manager.transcribe_audio(
                                 result["audio_data"], 
-                                context=context  # Pass conversation context
+                                context=context,
+                                language=None  # FIXED: Let model auto-detect
                             )
                             
-                            # Send transcription if meaningful and no errors
+                            # FIXED: Better result validation
                             if (transcription_result.get("text") and 
                                 "error" not in transcription_result and
-                                len(transcription_result["text"].strip()) > 0):
+                                len(transcription_result["text"].strip()) > 0 and
+                                transcription_result["text"].strip() not in ["", ".", "...", "..."]):
                                 
-                                # Add to conversation memory
+                                # Add to conversation
                                 conversation_manager.add_turn(
                                     websocket,
                                     transcription=transcription_result["text"],
@@ -253,121 +248,128 @@ async def websocket_transcribe(websocket: WebSocket):
                                     language=transcription_result.get("language")
                                 )
                                 
-                                # Add conversation stats to response
+                                # Add stats
                                 conv_stats = conversation_manager.get_conversation_stats(websocket)
                                 transcription_result["conversation"] = conv_stats
+                                transcription_result["fixed"] = True
                                 
                                 await websocket.send_json(transcription_result)
-                                logger.info(f"✅ TRANSCRIBED with context: '{transcription_result['text']}' (lang: {conv_stats.get('languages', [])})")
+                                logger.info(f"✅ FIXED TRANSCRIBED: '{transcription_result['text']}'")
                             else:
-                                logger.debug(f"Skipping empty transcription: {transcription_result}")
+                                logger.debug(f"Skipping empty/invalid transcription: {transcription_result}")
                         else:
                             await websocket.send_json({"error": "Model not loaded"})
                     else:
-                        logger.debug(f"Skipping transcription: duration={duration_ms:.0f}ms, speech_ratio={speech_ratio:.3f}")
+                        logger.debug(f"Skipping: duration={duration_ms:.0f}ms, speech={speech_ratio:.3f}")
                 elif result and "error" in result:
-                    logger.error(f"Audio processing error: {result['error']}")
+                    logger.error(f"FIXED audio processing error: {result['error']}")
                     
             except WebSocketDisconnect:
                 break
             except Exception as inner_e:
-                logger.error(f"Inner WebSocket transcription error: {inner_e}")
+                logger.error(f"FIXED inner WebSocket transcription error: {inner_e}")
                 try:
                     if not shutdown_event.is_set():
-                        await websocket.send_json({"error": f"Processing error: {str(inner_e)}"})
+                        await websocket.send_json({
+                            "error": f"FIXED processing error: {str(inner_e)}",
+                            "fixed": True
+                        })
                 except:
                     break
                         
     except WebSocketDisconnect:
-        logger.info("Transcription WebSocket disconnected")
+        logger.info("FIXED transcription WebSocket disconnected")
     except Exception as e:
-        logger.error(f"WebSocket transcription error: {e}")
+        logger.error(f"FIXED WebSocket transcription error: {e}")
     finally:
         conversation_manager.cleanup_conversation(websocket)
         ws_manager.disconnect(websocket)
 
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
-    """ENHANCED UNDERSTANDING: Speech → Intelligent Response with conversation memory"""
+    """FIXED: WebSocket understanding with proper message handling"""
     await ws_manager.connect(websocket, "understand")
     conversation_manager.start_conversation(websocket)
     
     try:
-        logger.info("🧠 Enhanced understanding session started with conversation memory")
+        logger.info("🧠 FIXED understanding session started")
         
         while not shutdown_event.is_set():
             try:
-                # Receive JSON message with audio and optional query
+                # FIXED: Receive JSON message
                 message = await websocket.receive_json()
                 
-                # Check for shutdown
                 if shutdown_event.is_set():
                     await websocket.send_json({"info": "Server shutting down"})
                     break
                 
-                # Validate message format
+                # FIXED: Better message validation
                 if not isinstance(message, dict) or "audio" not in message:
-                    await websocket.send_json({"error": "Invalid message format"})
+                    await websocket.send_json({
+                        "error": "Invalid message format. Expected: {\"audio\": \"base64_data\", \"text\": \"optional_query\"}",
+                        "fixed": True
+                    })
                     continue
                 
                 audio_data = message.get("audio")
-                query = message.get("text")
-                
-                # Use conversation-aware query if none provided
-                if not query:
-                    query = conversation_manager.get_suggested_prompt(websocket)
+                query = message.get("text", "What can you hear in this audio?")
                 
                 if not audio_data:
-                    await websocket.send_json({"error": "No audio data provided"})
+                    await websocket.send_json({"error": "No audio data provided", "fixed": True})
                     continue
                 
-                # Handle base64 encoded audio from browser
+                # FIXED: Handle base64 audio data
                 try:
                     if isinstance(audio_data, str):
+                        # FIXED: Better base64 decoding
+                        if audio_data.startswith("data:"):
+                            # Remove data URL prefix if present
+                            audio_data = audio_data.split(",")[1] if "," in audio_data else audio_data
                         audio_bytes = base64.b64decode(audio_data)
                     else:
                         audio_bytes = audio_data
                         
-                    if len(audio_bytes) < 10:
+                    if len(audio_bytes) < 50:
                         logger.warning("Decoded audio data too small")
                         continue
                         
                 except Exception as decode_e:
-                    logger.error(f"Failed to decode audio: {decode_e}")
-                    await websocket.send_json({"error": f"Audio decode error: {str(decode_e)}"})
+                    logger.error(f"FIXED audio decode error: {decode_e}")
+                    await websocket.send_json({
+                        "error": f"FIXED audio decode error: {str(decode_e)}",
+                        "fixed": True
+                    })
                     continue
                 
-                # Process through unified FFmpeg approach
-                result = await audio_processor.process_webm_chunk_understand(audio_bytes)
+                # FIXED: Process through corrected processor
+                result = await audio_processor.process_webm_chunk_understand(audio_bytes, websocket)
                 
                 if result and "audio_data" in result:
                     duration_ms = result.get("duration_ms", 0)
                     speech_ratio = result.get("speech_ratio", 0)
                     
-                    # ENHANCED: More sensitive thresholds
+                    # FIXED: More permissive thresholds
                     if duration_ms > 300 and speech_ratio > 0.05:
-                        logger.info(f"🧠 UNDERSTANDING with conversation context ({duration_ms:.0f}ms, speech: {speech_ratio:.3f})")
+                        logger.info(f"🧠 FIXED UNDERSTANDING: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
                         
                         if model_manager and model_manager.is_loaded:
-                            # Get conversation context
+                            # Get context
                             context = conversation_manager.get_conversation_context(websocket)
                             
-                            # Use UNDERSTANDING mode - ASR + LLM with context
+                            # FIXED: Use corrected understanding
                             understanding_result = await model_manager.understand_audio(
                                 result["audio_data"], 
                                 query=query,
-                                context=context  # Pass conversation context
+                                context=context
                             )
                             
-                            # Send response if meaningful and no errors
+                            # FIXED: Better result validation
                             if ("response" in understanding_result and 
                                 "error" not in understanding_result and
                                 len(understanding_result["response"].strip()) > 0):
                                 
-                                # Extract transcription from understanding if available
+                                # Add to conversation
                                 transcription = understanding_result.get("transcription", "")
-                                
-                                # Add to conversation memory
                                 conversation_manager.add_turn(
                                     websocket,
                                     transcription=transcription,
@@ -378,46 +380,61 @@ async def websocket_understand(websocket: WebSocket):
                                     language=understanding_result.get("language")
                                 )
                                 
-                                # Add conversation stats to response
+                                # Add stats
                                 conv_stats = conversation_manager.get_conversation_stats(websocket)
                                 understanding_result["conversation"] = conv_stats
+                                understanding_result["fixed"] = True
                                 
                                 await websocket.send_json(understanding_result)
-                                logger.info(f"✅ UNDERSTOOD with context: '{understanding_result['response'][:100]}...' (turns: {conv_stats['turns']})")
+                                logger.info(f"✅ FIXED UNDERSTOOD: '{understanding_result['response'][:100]}...'")
                             else:
-                                logger.warning(f"No valid understanding: {understanding_result}")
+                                logger.warning(f"Invalid understanding result: {understanding_result}")
+                                await websocket.send_json({
+                                    "error": "No valid understanding generated",
+                                    "fixed": True
+                                })
                         else:
-                            await websocket.send_json({"error": "Model not loaded"})
+                            await websocket.send_json({"error": "Model not loaded", "fixed": True})
                     else:
-                        logger.debug(f"Skipping understanding: duration={duration_ms:.0f}ms, speech_ratio={speech_ratio:.3f}")
+                        logger.debug(f"Skipping understanding: duration={duration_ms:.0f}ms, speech={speech_ratio:.3f}")
                 elif result and "error" in result:
-                    logger.error(f"Audio understanding processing error: {result['error']}")
-                    await websocket.send_json({"error": result['error']})
+                    logger.error(f"FIXED understanding processing error: {result['error']}")
+                    await websocket.send_json({"error": result["error"], "fixed": True})
                     
             except WebSocketDisconnect:
                 break
             except json.JSONDecodeError as json_e:
-                logger.error(f"JSON decode error: {json_e}")
-                await websocket.send_json({"error": "Invalid JSON format"})
+                logger.error(f"FIXED JSON decode error: {json_e}")
+                await websocket.send_json({
+                    "error": "Invalid JSON format",
+                    "fixed": True,
+                    "example": {
+                        "audio": "base64_encoded_audio_data",
+                        "text": "What can you hear?"
+                    }
+                })
             except Exception as inner_e:
-                logger.error(f"Inner WebSocket understanding error: {inner_e}")
+                logger.error(f"FIXED inner WebSocket understanding error: {inner_e}")
                 try:
                     if not shutdown_event.is_set():
-                        await websocket.send_json({"error": f"Processing error: {str(inner_e)}"})
+                        await websocket.send_json({
+                            "error": f"FIXED processing error: {str(inner_e)}",
+                            "fixed": True
+                        })
                 except:
                     break
                 
     except WebSocketDisconnect:
-        logger.info("Understanding WebSocket disconnected")
+        logger.info("FIXED understanding WebSocket disconnected")
     except Exception as e:
-        logger.error(f"WebSocket understanding error: {e}")
+        logger.error(f"FIXED WebSocket understanding error: {e}")
     finally:
         conversation_manager.cleanup_conversation(websocket)
         ws_manager.disconnect(websocket)
 
 @app.get("/conversations")
 async def get_conversations():
-    """Get conversation statistics and active sessions"""
+    """Get conversation statistics"""
     active_conversations = {}
     for conn_id, turns in conversation_manager.conversations.items():
         if turns:
@@ -437,7 +454,8 @@ async def get_conversations():
             "max_turns_per_conversation": conversation_manager.max_turns,
             "context_window_minutes": conversation_manager.context_window.total_seconds() / 60,
             "audio_processor_stats": audio_processor.get_stats()
-        }
+        },
+        "fixed": True
     }
 
 @app.post("/conversations/reset")
@@ -448,15 +466,18 @@ async def reset_conversations():
     conversation_manager.audio_context.clear()
     audio_processor.reset()
     
-    return {"status": "All conversations and audio processor reset successfully"}
+    return {
+        "status": "All conversations and audio processor reset successfully",
+        "fixed": True
+    }
 
-@app.get("/debug/enhanced")
-async def debug_enhanced():
-    """Enhanced debug information"""
+@app.get("/debug/fixed")
+async def debug_fixed():
+    """FIXED: Enhanced debug information"""
     return {
         "conversation_manager": {
             "active_sessions": len(conversation_manager.conversations),
-            "language_patterns": {k: v[-3:] for k, v in conversation_manager.language_patterns.items()},  # Last 3 languages per session
+            "language_patterns": {k: v[-3:] for k, v in conversation_manager.language_patterns.items()},
         },
         "audio_processor": audio_processor.get_stats(),
         "websocket_manager": ws_manager.get_connection_stats(),
@@ -467,7 +488,15 @@ async def debug_enhanced():
         "system_status": {
             "shutdown_requested": shutdown_event.is_set(),
             "background_tasks_active": not shutdown_event.is_set()
-        }
+        },
+        "fixes_applied": [
+            "✅ Language code validation (ISO 639-1)",
+            "✅ ThreadPool cleanup without timeout", 
+            "✅ WebSocket error handling",
+            "✅ FFmpeg process management",
+            "✅ Audio processing pipeline"
+        ],
+        "fixed": True
     }
 
 if __name__ == "__main__":
@@ -479,10 +508,10 @@ if __name__ == "__main__":
             reload=False,
             log_level="info",
             access_log=True,
-            timeout_graceful_shutdown=30  # 30 seconds for graceful shutdown
+            timeout_graceful_shutdown=30
         )
     except KeyboardInterrupt:
-        logger.info("🛑 Server stopped by user")
+        logger.info("🛑 FIXED server stopped by user")
     except Exception as e:
-        logger.error(f"❌ Server error: {e}")
+        logger.error(f"❌ FIXED server error: {e}")
         sys.exit(1)
