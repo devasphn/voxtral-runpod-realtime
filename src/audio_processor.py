@@ -12,35 +12,35 @@ import collections
 logger = logging.getLogger(__name__)
 
 class AudioProcessor:
-    """Real-time audio processing for Voxtral model"""
+    """FIXED: Real-time audio processing for Voxtral model"""
     
     def __init__(
         self,
         sample_rate: int = 16000,
         channels: int = 1,
-        chunk_duration_ms: int = 30,  # 30ms chunks
-        vad_mode: int = 3  # Aggressive VAD
+        chunk_duration_ms: int = 30,
+        vad_mode: int = 3
     ):
         self.sample_rate = sample_rate
         self.channels = channels
         self.chunk_duration_ms = chunk_duration_ms
-        self.frame_duration_ms = 30  # 30ms frames for VAD
+        self.frame_duration_ms = 30
         
         # Voice Activity Detection
         self.vad = webrtcvad.Vad(vad_mode)
         
         # Buffer for audio chunks
-        self.audio_buffer = collections.deque(maxlen=100)  # ~3 seconds at 30ms chunks
-        self.silence_threshold = 10  # consecutive silent chunks before processing
+        self.audio_buffer = collections.deque(maxlen=100)
+        self.silence_threshold = 8  # Reduced threshold
         self.silence_count = 0
         
-        logger.info(f"AudioProcessor initialized: {sample_rate}Hz, {channels}ch")
+        logger.info(f"✅ FIXED AudioProcessor initialized: {sample_rate}Hz, {channels}ch")
     
     def process_chunk(self, audio_data: bytes) -> Optional[Dict[str, Any]]:
-        """Process incoming audio chunk"""
+        """FIXED: Process incoming WebM/Opus audio chunk from browser"""
         try:
-            # Convert to AudioSegment for processing
-            audio_segment = self._bytes_to_audio_segment(audio_data)
+            # FIXED: Better WebM/Opus decoding
+            audio_segment = self._decode_webm_audio(audio_data)
             if audio_segment is None:
                 return None
             
@@ -70,38 +70,60 @@ class AudioProcessor:
             logger.error(f"Chunk processing error: {e}")
             return None
     
-    def _bytes_to_audio_segment(self, audio_data: bytes) -> Optional[AudioSegment]:
-        """Convert bytes to AudioSegment"""
+    def _decode_webm_audio(self, audio_data: bytes) -> Optional[AudioSegment]:
+        """FIXED: Decode WebM/Opus audio from browser"""
         try:
-            # Try different formats
+            # Create BytesIO object
             audio_io = io.BytesIO(audio_data)
             
-            # Try as WAV first
+            # Try WebM format first (this is what browsers send)
             try:
-                return AudioSegment.from_wav(audio_io)
-            except:
-                pass
+                logger.debug("Trying WebM format...")
+                audio_segment = AudioSegment.from_file(audio_io, format="webm")
+                logger.info("✅ Successfully decoded WebM audio")
+                return audio_segment
+            except Exception as e:
+                logger.debug(f"WebM decoding failed: {e}")
             
-            # Try as raw PCM
+            # Reset stream position
+            audio_io.seek(0)
+            
+            # Try auto-detection (let pydub figure it out)
             try:
-                audio_io.seek(0)
-                return AudioSegment(
+                logger.debug("Trying auto-detection...")
+                audio_segment = AudioSegment.from_file(audio_io)
+                logger.info("✅ Successfully decoded with auto-detection")
+                return audio_segment
+            except Exception as e:
+                logger.debug(f"Auto-detection failed: {e}")
+            
+            # Reset stream position
+            audio_io.seek(0)
+            
+            # Try as WAV (fallback)
+            try:
+                logger.debug("Trying WAV format...")
+                audio_segment = AudioSegment.from_wav(audio_io)
+                logger.info("✅ Successfully decoded WAV audio")
+                return audio_segment
+            except Exception as e:
+                logger.debug(f"WAV decoding failed: {e}")
+            
+            # Final fallback - treat as raw PCM
+            try:
+                logger.debug("Trying raw PCM...")
+                audio_segment = AudioSegment(
                     data=audio_data,
                     sample_width=2,  # 16-bit
                     frame_rate=self.sample_rate,
                     channels=self.channels
                 )
-            except:
-                pass
+                logger.info("✅ Successfully decoded as raw PCM")
+                return audio_segment
+            except Exception as e:
+                logger.debug(f"Raw PCM failed: {e}")
             
-            # Try auto-detection
-            try:
-                audio_io.seek(0)
-                return AudioSegment.from_file(audio_io)
-            except:
-                pass
-            
-            logger.warning("Could not decode audio data")
+            logger.warning(f"Could not decode audio data (size: {len(audio_data)} bytes)")
             return None
             
         except Exception as e:
@@ -127,7 +149,7 @@ class AudioProcessor:
         """Detect voice activity in audio chunk"""
         try:
             # VAD expects 16kHz, 16-bit PCM
-            frame_length = int(self.sample_rate * self.frame_duration_ms / 1000) * 2  # 2 bytes per sample
+            frame_length = int(self.sample_rate * self.frame_duration_ms / 1000) * 2
             
             if len(audio_bytes) < frame_length:
                 return False
@@ -144,11 +166,11 @@ class AudioProcessor:
     
     def _should_process_buffer(self) -> bool:
         """Determine if buffer should be processed"""
-        if len(self.audio_buffer) < 5:  # Need minimum chunks
+        if len(self.audio_buffer) < 3:  # Reduced minimum chunks
             return False
         
         # Check for speech activity
-        recent_chunks = list(self.audio_buffer)[-5:]  # Last 5 chunks
+        recent_chunks = list(self.audio_buffer)[-3:]
         speech_chunks = sum(1 for chunk in recent_chunks if chunk["is_speech"])
         
         # Process if we have speech or enough silence
@@ -176,7 +198,7 @@ class AudioProcessor:
                 channels=self.channels
             )
             
-            # Apply noise reduction (simple)
+            # Apply noise reduction
             audio_segment = self._reduce_noise(audio_segment)
             
             # Export as WAV bytes
@@ -187,15 +209,18 @@ class AudioProcessor:
             # Calculate statistics
             duration_ms = len(audio_segment)
             speech_chunks = sum(1 for chunk in self.audio_buffer if chunk["is_speech"])
+            total_chunks = len(self.audio_buffer)
             
             # Clear buffer
             self.audio_buffer.clear()
             self.silence_count = 0
             
+            logger.info(f"🎤 Processed audio: {duration_ms}ms, speech ratio: {speech_chunks}/{total_chunks}")
+            
             return {
                 "audio_data": wav_bytes,
                 "duration_ms": duration_ms,
-                "speech_ratio": speech_chunks / len(self.audio_buffer) if self.audio_buffer else 0,
+                "speech_ratio": speech_chunks / total_chunks if total_chunks > 0 else 0,
                 "sample_rate": self.sample_rate,
                 "channels": self.channels,
                 "processed_at": asyncio.get_event_loop().time()
@@ -209,7 +234,7 @@ class AudioProcessor:
         """Simple noise reduction"""
         try:
             # Apply high-pass filter to remove low-frequency noise
-            audio_segment = audio_segment.high_pass_filter(80)  # Remove below 80Hz
+            audio_segment = audio_segment.high_pass_filter(80)
             
             # Normalize volume
             audio_segment = audio_segment.normalize()
