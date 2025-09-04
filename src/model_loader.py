@@ -14,7 +14,7 @@ from transformers import VoxtralForConditionalGeneration, AutoProcessor
 logger = logging.getLogger(__name__)
 
 class VoxtralModelManager:
-    """CORRECT: Manages Voxtral Mini 3B model with PROPER API usage"""
+    """FIXED: Manages Voxtral Mini 3B model with CORRECT processor loading"""
     
     def __init__(
         self, 
@@ -37,7 +37,7 @@ class VoxtralModelManager:
         logger.info(f"Initialized VoxtralModelManager for {model_name} on {self.device}")
     
     async def load_model(self) -> None:
-        """Load Voxtral model and processor - CORRECT METHOD"""
+        """Load Voxtral model and processor - FIXED"""
         try:
             logger.info(f"🔄 Loading Voxtral model: {self.model_name}")
             
@@ -46,7 +46,7 @@ class VoxtralModelManager:
                 torch.cuda.empty_cache()
                 gc.collect()
             
-            # Load processor
+            # FIXED: Load processor without problematic parameters
             logger.info("Loading processor...")
             self.processor = AutoProcessor.from_pretrained(self.model_name)
             
@@ -79,42 +79,103 @@ class VoxtralModelManager:
             logger.error(f"❌ Failed to load model: {e}")
             raise RuntimeError(f"Model loading failed: {e}")
     
-    def _save_wav_bytes(self, audio_bytes: bytes) -> str:
-        """Save audio bytes as WAV file"""
+    def _convert_webm_to_wav(self, webm_bytes: bytes) -> str:
+        """Convert WebM/Opus audio from browser to WAV file"""
+        try:
+            import io
+            from pydub import AudioSegment
+            
+            # Create temporary files
+            temp_webm_fd, temp_webm_path = tempfile.mkstemp(suffix='.webm')
+            temp_wav_fd, temp_wav_path = tempfile.mkstemp(suffix='.wav')
+            
+            # Close file descriptors
+            os.close(temp_webm_fd)
+            os.close(temp_wav_fd)
+            
+            try:
+                # Write WebM data to temp file
+                with open(temp_webm_path, 'wb') as f:
+                    f.write(webm_bytes)
+                
+                # Convert WebM to WAV using pydub
+                audio_segment = AudioSegment.from_file(temp_webm_path)
+                
+                # Convert to the format Voxtral expects:
+                # - Mono (1 channel)
+                # - 16kHz sample rate  
+                # - 16-bit depth
+                audio_segment = audio_segment.set_channels(1)
+                audio_segment = audio_segment.set_frame_rate(16000)
+                audio_segment = audio_segment.set_sample_width(2)  # 16-bit
+                
+                # Export as WAV
+                audio_segment.export(temp_wav_path, format="wav")
+                
+                logger.info(f"✅ Converted WebM to WAV: {len(webm_bytes)} bytes -> {temp_wav_path}")
+                
+                # Clean up WebM file
+                if os.path.exists(temp_webm_path):
+                    os.unlink(temp_webm_path)
+                    
+                return temp_wav_path
+                
+            except Exception as e:
+                # Clean up on error
+                for path in [temp_webm_path, temp_wav_path]:
+                    if os.path.exists(path):
+                        os.unlink(path)
+                raise e
+                
+        except Exception as e:
+            logger.error(f"Failed to convert WebM to WAV: {e}")
+            # Fallback: try to treat as raw PCM
+            return self._bytes_to_wav_file(webm_bytes)
+    
+    def _bytes_to_wav_file(self, audio_bytes: bytes) -> str:
+        """Fallback: Convert raw bytes to WAV file"""
         try:
             temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
             os.close(temp_fd)
             
-            with open(temp_path, 'wb') as f:
-                f.write(audio_bytes)
+            # Assume raw PCM data
+            if len(audio_bytes) % 2 == 1:
+                audio_bytes = audio_bytes[:-1]
+            
+            audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+            
+            with wave.open(temp_path, 'wb') as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(16000)
+                wav_file.writeframes(audio_array.tobytes())
             
             return temp_path
             
         except Exception as e:
-            logger.error(f"Failed to save WAV file: {e}")
-            raise RuntimeError(f"WAV file creation failed: {e}")
+            logger.error(f"Failed to create WAV file: {e}")
+            raise RuntimeError(f"Audio processing failed: {e}")
     
     async def transcribe_audio(self, audio_data: bytes) -> Dict[str, Any]:
-        """TRANSCRIPTION MODE: Audio -> Text (ASR only) - CORRECT API"""
+        """TRANSCRIPTION MODE: Audio -> Text (ASR only)"""
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
         temp_path = None
         try:
-            # Save WAV bytes to temp file
-            temp_path = self._save_wav_bytes(audio_data)
+            # Convert WebM/browser audio to WAV
+            temp_path = self._convert_webm_to_wav(audio_data)
             
-            # Use apply_transcription_request for pure ASR
-            logger.info("🎤 Running transcription with apply_transcription_request...")
+            # FIXED: Use apply_transcription_request for pure ASR
             inputs = self.processor.apply_transcription_request(
-                language="en", 
                 audio=temp_path,
+                language="en", 
                 model_id=self.model_name,
                 return_tensors="pt"
             )
             
             # Move to device
-            inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
             
             # Generate transcription
             with torch.no_grad():
@@ -138,7 +199,7 @@ class VoxtralModelManager:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
             
-            logger.info(f"✅ Transcription completed: '{transcription[:100]}...'")
+            logger.info(f"✅ Transcription: '{transcription[:100]}...'")
             
             return {
                 "type": "transcription",
@@ -158,7 +219,7 @@ class VoxtralModelManager:
             return {"error": f"Transcription failed: {str(e)}"}
     
     async def understand_audio(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """UNDERSTANDING MODE: Audio -> ASR + LLM Response - CORRECT API"""
+        """UNDERSTANDING MODE: Audio -> Text -> LLM Response (ASR + LLM)"""
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
@@ -179,18 +240,18 @@ class VoxtralModelManager:
             else:
                 audio_bytes = audio_data
             
-            # Save as temp WAV file
-            temp_path = self._save_wav_bytes(audio_bytes)
+            # Convert to WAV file
+            temp_path = self._convert_webm_to_wav(audio_bytes)
             
-            # Use apply_chat_template for understanding (ASR + LLM)
-            logger.info("🧠 Running understanding with apply_chat_template...")
+            # UNDERSTANDING MODE: Audio-only conversation for intelligent response
+            # This will do ASR + LLM processing automatically
             conversation = [
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "audio",
-                            "path": temp_path
+                            "path": temp_path  # Just audio, no text needed!
                         }
                     ]
                 }
@@ -203,7 +264,7 @@ class VoxtralModelManager:
             )
             
             # Move to device
-            inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
             
             # Generate intelligent response (ASR + LLM)
             with torch.no_grad():
@@ -228,12 +289,12 @@ class VoxtralModelManager:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
             
-            logger.info(f"✅ Understanding completed: '{response[:100]}...'")
+            logger.info(f"✅ Understanding: '{response[:100]}...'")
             
             return {
                 "type": "understanding",
                 "response": response.strip(),
-                "query": "Audio understanding (speech -> intelligent response)",
+                "query": "Audio understanding (no text needed)",
                 "timestamp": asyncio.get_event_loop().time()
             }
             
