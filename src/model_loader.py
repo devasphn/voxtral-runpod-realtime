@@ -10,14 +10,11 @@ import base64
 import numpy as np
 
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
-from mistral_common.protocol.transcription.request import TranscriptionRequest
-from mistral_common.protocol.instruct.messages import RawAudio, TextChunk, AudioChunk, UserMessage
-from mistral_common.audio import Audio
 
 logger = logging.getLogger(__name__)
 
 class VoxtralModelManager:
-    """FIXED: Manages Voxtral Mini 3B model with proper mistral_common integration"""
+    """FIXED: Manages Voxtral Mini 3B model with CORRECT processor loading"""
     
     def __init__(
         self, 
@@ -40,7 +37,7 @@ class VoxtralModelManager:
         logger.info(f"Initialized VoxtralModelManager for {model_name} on {self.device}")
     
     async def load_model(self) -> None:
-        """Load Voxtral model and processor"""
+        """Load Voxtral model and processor - FIXED"""
         try:
             logger.info(f"🔄 Loading Voxtral model: {self.model_name}")
             
@@ -49,13 +46,9 @@ class VoxtralModelManager:
                 torch.cuda.empty_cache()
                 gc.collect()
             
-            # Load processor with mistral tokenizer mode
+            # FIXED: Load processor without problematic parameters
             logger.info("Loading processor...")
-            self.processor = AutoProcessor.from_pretrained(
-                self.model_name,
-                trust_remote_code=True,
-                tokenizer_mode="mistral"
-            )
+            self.processor = AutoProcessor.from_pretrained(self.model_name)
             
             # Load model
             logger.info("Loading model...")
@@ -87,7 +80,7 @@ class VoxtralModelManager:
             raise RuntimeError(f"Model loading failed: {e}")
     
     def _convert_webm_to_wav(self, webm_bytes: bytes) -> str:
-        """FIXED: Convert WebM/Opus audio from browser to WAV file for Voxtral"""
+        """Convert WebM/Opus audio from browser to WAV file"""
         try:
             import io
             from pydub import AudioSegment
@@ -164,7 +157,7 @@ class VoxtralModelManager:
             raise RuntimeError(f"Audio processing failed: {e}")
     
     async def transcribe_audio(self, audio_data: bytes) -> Dict[str, Any]:
-        """FIXED: Use proper Voxtral transcription API with mistral_common"""
+        """TRANSCRIPTION MODE: Audio -> Text (ASR only)"""
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
@@ -173,25 +166,11 @@ class VoxtralModelManager:
             # Convert WebM/browser audio to WAV
             temp_path = self._convert_webm_to_wav(audio_data)
             
-            # FIXED: Use proper mistral_common API
-            audio = Audio.from_file(temp_path, strict=False)
-            raw_audio = RawAudio.from_audio(audio)
-            
-            # Create proper transcription request
-            transcription_request = TranscriptionRequest(
-                model=self.model_name,
-                audio=raw_audio,
-                language="en",
-                temperature=0.0
-            )
-            
-            # Convert to model inputs using proper API
-            openai_request = transcription_request.to_openai(exclude=("top_p", "seed"))
-            
-            # Use processor to create model inputs
-            # FIXED: Use the Voxtral processor correctly
-            inputs = self.processor.apply_chat_template(
-                [{"role": "user", "content": [{"type": "audio", "audio": temp_path}]}],
+            # FIXED: Use apply_transcription_request for pure ASR
+            inputs = self.processor.apply_transcription_request(
+                audio=temp_path,
+                language="en", 
+                model_id=self.model_name,
                 return_tensors="pt"
             )
             
@@ -240,15 +219,14 @@ class VoxtralModelManager:
             return {"error": f"Transcription failed: {str(e)}"}
     
     async def understand_audio(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """FIXED: Use proper Voxtral understanding API with mistral_common"""
+        """UNDERSTANDING MODE: Audio -> Text -> LLM Response (ASR + LLM)"""
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
         temp_path = None
         try:
-            # Extract audio and text
+            # Extract audio from message
             audio_data = message.get("audio")
-            text_query = message.get("text", "What can you hear in this audio?")
             
             if not audio_data:
                 return {"error": "No audio data provided"}
@@ -265,26 +243,30 @@ class VoxtralModelManager:
             # Convert to WAV file
             temp_path = self._convert_webm_to_wav(audio_bytes)
             
-            # FIXED: Use proper mistral_common for understanding
-            audio = Audio.from_file(temp_path, strict=False)
-            audio_chunk = AudioChunk.from_audio(audio)
-            text_chunk = TextChunk(text=text_query)
+            # UNDERSTANDING MODE: Audio-only conversation for intelligent response
+            # This will do ASR + LLM processing automatically
+            conversation = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "audio",
+                            "path": temp_path  # Just audio, no text needed!
+                        }
+                    ]
+                }
+            ]
             
-            user_message = UserMessage(content=[audio_chunk, text_chunk])
-            
-            # Convert to proper format for model
-            messages = [user_message.to_openai()]
-            
-            # Apply chat template
+            # Apply chat template for understanding
             inputs = self.processor.apply_chat_template(
-                messages,
+                conversation,
                 return_tensors="pt"
             )
             
             # Move to device
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
             
-            # Generate response
+            # Generate intelligent response (ASR + LLM)
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
@@ -312,7 +294,7 @@ class VoxtralModelManager:
             return {
                 "type": "understanding",
                 "response": response.strip(),
-                "query": text_query,
+                "query": "Audio understanding (no text needed)",
                 "timestamp": asyncio.get_event_loop().time()
             }
             
