@@ -13,6 +13,7 @@ from config.settings import Settings
 from config.logging_config import setup_logging
 from src.websocket_handler import WebSocketManager
 from src.model_loader import VoxtralModelManager
+from src.audio_processor import AudioProcessor
 from src.utils import get_system_info
 
 # Initialize logging
@@ -22,9 +23,14 @@ logger = logging.getLogger(__name__)
 # Global settings
 settings = Settings()
 
-# Global model manager
+# Global model manager and audio processor
 model_manager = None
 ws_manager = WebSocketManager()
+audio_processor = AudioProcessor(
+    sample_rate=16000,
+    channels=1,
+    chunk_duration_ms=30
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,7 +38,7 @@ async def lifespan(app: FastAPI):
     global model_manager
     
     # Startup
-    logger.info("🚀 Starting FIXED Voxtral Real-Time Server...")
+    logger.info("🚀 Starting PERFECT Voxtral Real-Time Server...")
     
     # Initialize model
     try:
@@ -53,12 +59,13 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 Shutting down server...")
     if model_manager:
         await model_manager.cleanup()
+    await audio_processor.cleanup()
 
 # Create FastAPI app
 app = FastAPI(
-    title="Voxtral Mini 3B - FIXED Real-Time API",
+    title="Voxtral Mini 3B - PERFECT Real-Time API",
     description="TRANSCRIPTION = ASR | UNDERSTANDING = ASR + LLM",
-    version="1.3.0",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -85,6 +92,7 @@ async def health_check():
             "active_connections": ws_manager.connection_count,
             "transcription_mode": "ASR only - Speech to Text",
             "understanding_mode": "ASR + LLM - Speech to Intelligent Response",
+            "audio_processing": "FFmpeg WebM streaming",
             "system": system_info,
             "timestamp": asyncio.get_event_loop().time()
         }
@@ -104,9 +112,9 @@ async def model_info():
         "device": str(settings.DEVICE),
         "dtype": str(settings.TORCH_DTYPE),
         "context_length": "32K tokens",
+        "audio_processing": "FFmpeg WebM -> PCM streaming",
         "transcription_mode": "ASR only - converts speech to text",
         "understanding_mode": "ASR + LLM - speech to intelligent response",
-        "audio_processing": "Direct WebM processing",
         "supported_languages": [
             "English", "Spanish", "French", "Portuguese", 
             "Hindi", "German", "Dutch", "Italian"
@@ -114,36 +122,44 @@ async def model_info():
         "capabilities": [
             "✅ Pure ASR transcription",
             "✅ Audio understanding (speak -> get intelligent reply)",
-            "✅ WebM/Opus browser audio support",
+            "✅ Real-time FFmpeg WebM processing",
+            "✅ Browser MediaRecorder support",
             "✅ Multi-language support"
         ]
     }
 
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
-    """TRANSCRIPTION MODE: Speech -> Text (ASR only)"""
+    """TRANSCRIPTION MODE: Speech -> Text (ASR only) - FFmpeg streaming"""
     await ws_manager.connect(websocket, "transcribe")
+    
     try:
         while True:
-            # Receive WebM/Opus audio from browser
+            # Receive WebM audio from browser
             data = await websocket.receive_bytes()
             
-            logger.info(f"🎤 Received audio chunk: {len(data)} bytes")
+            # Process WebM chunk through FFmpeg streaming
+            result = await audio_processor.process_webm_chunk(data)
             
-            if model_manager and model_manager.is_loaded:
-                # Use TRANSCRIPTION mode - ASR only
-                result = await model_manager.transcribe_audio(data)
-                
-                # Send transcription if meaningful
-                if (result.get("text") and 
-                    result["text"].strip() and 
-                    not any(phrase in result["text"].lower() for phrase in 
-                           ["i'm sorry", "could not", "didn't catch"])):
+            if result and "audio_data" in result:
+                duration_ms = result.get("duration_ms", 0)
+                if duration_ms > 500:  # Process audio longer than 500ms
+                    logger.info(f"🎤 TRANSCRIBING FFmpeg processed audio ({duration_ms:.0f}ms)")
                     
-                    await websocket.send_json(result)
-                    logger.info(f"✅ TRANSCRIBED: '{result['text'][:50]}...'")
-            else:
-                await websocket.send_json({"error": "Model not loaded"})
+                    if model_manager and model_manager.is_loaded:
+                        # Use TRANSCRIPTION mode - ASR only
+                        transcription_result = await model_manager.transcribe_audio(result["audio_data"])
+                        
+                        # Send transcription if meaningful
+                        if (transcription_result.get("text") and 
+                            transcription_result["text"].strip() and 
+                            not any(phrase in transcription_result["text"].lower() for phrase in 
+                                   ["i'm sorry", "could not", "didn't catch", "can't understand"])):
+                            
+                            await websocket.send_json(transcription_result)
+                            logger.info(f"✅ TRANSCRIBED: '{transcription_result['text'][:50]}...'")
+                    else:
+                        await websocket.send_json({"error": "Model not loaded"})
                         
     except WebSocketDisconnect:
         logger.info("Transcription WebSocket disconnected")
@@ -158,7 +174,7 @@ async def websocket_transcribe(websocket: WebSocket):
 
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
-    """UNDERSTANDING MODE: Speech -> Intelligent Response (ASR + LLM)"""
+    """UNDERSTANDING MODE: Speech -> Intelligent Response (ASR + LLM) - FFmpeg streaming"""
     await ws_manager.connect(websocket, "understand")
     
     try:
@@ -190,8 +206,15 @@ async def get_connections():
     return {
         "total_connections": ws_manager.connection_count,
         "connections_by_type": ws_manager.get_connections_by_type(),
-        "max_connections": settings.MAX_CONCURRENT_CONNECTIONS
+        "max_connections": settings.MAX_CONCURRENT_CONNECTIONS,
+        "audio_stats": audio_processor.get_stats()
     }
+
+@app.post("/audio/reset")
+async def reset_audio():
+    """Reset audio processor"""
+    audio_processor.reset()
+    return {"status": "Audio processor reset successfully"}
 
 if __name__ == "__main__":
     uvicorn.run(
