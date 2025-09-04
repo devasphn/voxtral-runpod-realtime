@@ -1,4 +1,4 @@
-# COMPLETELY FIXED MODEL LOADER - WITH CORRECT VOXTRAL API USAGE
+# COMPLETELY FIXED MODEL LOADER - REPLACE ENTIRE src/model_loader.py FILE
 import asyncio
 import logging
 import torch
