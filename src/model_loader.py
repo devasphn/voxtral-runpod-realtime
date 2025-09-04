@@ -1,3 +1,4 @@
+# PERFECT MODEL LOADER - UNIFIED APPROACH FOR BOTH MODES
 import asyncio
 import logging
 import torch
@@ -13,8 +14,8 @@ from transformers import VoxtralForConditionalGeneration, AutoProcessor
 
 logger = logging.getLogger(__name__)
 
-class VoxtralModelManager:
-    """FIXED: Manages Voxtral Mini 3B model with CORRECT processor loading"""
+class PerfectVoxtralModelManager:
+    """PERFECT: Unified Voxtral model manager with robust audio processing"""
     
     def __init__(
         self, 
@@ -34,10 +35,10 @@ class VoxtralModelManager:
         self.is_loaded = False
         self.model_info = {}
         
-        logger.info(f"Initialized VoxtralModelManager for {model_name} on {self.device}")
+        logger.info(f"Initialized PerfectVoxtralModelManager for {model_name} on {self.device}")
     
     async def load_model(self) -> None:
-        """Load Voxtral model and processor - FIXED"""
+        """Load Voxtral model and processor with error handling"""
         try:
             logger.info(f"🔄 Loading Voxtral model: {self.model_name}")
             
@@ -46,7 +47,7 @@ class VoxtralModelManager:
                 torch.cuda.empty_cache()
                 gc.collect()
             
-            # FIXED: Load processor without problematic parameters
+            # Load processor
             logger.info("Loading processor...")
             self.processor = AutoProcessor.from_pretrained(self.model_name)
             
@@ -79,94 +80,24 @@ class VoxtralModelManager:
             logger.error(f"❌ Failed to load model: {e}")
             raise RuntimeError(f"Model loading failed: {e}")
     
-    def _convert_webm_to_wav(self, webm_bytes: bytes) -> str:
-        """Convert WebM/Opus audio from browser to WAV file"""
-        try:
-            import io
-            from pydub import AudioSegment
-            
-            # Create temporary files
-            temp_webm_fd, temp_webm_path = tempfile.mkstemp(suffix='.webm')
-            temp_wav_fd, temp_wav_path = tempfile.mkstemp(suffix='.wav')
-            
-            # Close file descriptors
-            os.close(temp_webm_fd)
-            os.close(temp_wav_fd)
-            
-            try:
-                # Write WebM data to temp file
-                with open(temp_webm_path, 'wb') as f:
-                    f.write(webm_bytes)
-                
-                # Convert WebM to WAV using pydub
-                audio_segment = AudioSegment.from_file(temp_webm_path)
-                
-                # Convert to the format Voxtral expects:
-                # - Mono (1 channel)
-                # - 16kHz sample rate  
-                # - 16-bit depth
-                audio_segment = audio_segment.set_channels(1)
-                audio_segment = audio_segment.set_frame_rate(16000)
-                audio_segment = audio_segment.set_sample_width(2)  # 16-bit
-                
-                # Export as WAV
-                audio_segment.export(temp_wav_path, format="wav")
-                
-                logger.info(f"✅ Converted WebM to WAV: {len(webm_bytes)} bytes -> {temp_wav_path}")
-                
-                # Clean up WebM file
-                if os.path.exists(temp_webm_path):
-                    os.unlink(temp_webm_path)
-                    
-                return temp_wav_path
-                
-            except Exception as e:
-                # Clean up on error
-                for path in [temp_webm_path, temp_wav_path]:
-                    if os.path.exists(path):
-                        os.unlink(path)
-                raise e
-                
-        except Exception as e:
-            logger.error(f"Failed to convert WebM to WAV: {e}")
-            # Fallback: try to treat as raw PCM
-            return self._bytes_to_wav_file(webm_bytes)
-    
-    def _bytes_to_wav_file(self, audio_bytes: bytes) -> str:
-        """Fallback: Convert raw bytes to WAV file"""
-        try:
-            temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
-            os.close(temp_fd)
-            
-            # Assume raw PCM data
-            if len(audio_bytes) % 2 == 1:
-                audio_bytes = audio_bytes[:-1]
-            
-            audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
-            
-            with wave.open(temp_path, 'wb') as wav_file:
-                wav_file.setnchannels(1)
-                wav_file.setsampwidth(2)
-                wav_file.setframerate(16000)
-                wav_file.writeframes(audio_array.tobytes())
-            
-            return temp_path
-            
-        except Exception as e:
-            logger.error(f"Failed to create WAV file: {e}")
-            raise RuntimeError(f"Audio processing failed: {e}")
-    
     async def transcribe_audio(self, audio_data: bytes) -> Dict[str, Any]:
-        """TRANSCRIPTION MODE: Audio -> Text (ASR only)"""
+        """TRANSCRIPTION MODE: Audio -> Text (ASR only) with robust error handling"""
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
         temp_path = None
         try:
-            # Convert WebM/browser audio to WAV
-            temp_path = self._convert_webm_to_wav(audio_data)
+            # Validate input
+            if not audio_data or len(audio_data) < 100:
+                return {"error": "Invalid or insufficient audio data"}
             
-            # FIXED: Use apply_transcription_request for pure ASR
+            # Create temporary WAV file from audio data
+            temp_path = self._audio_bytes_to_wav_file(audio_data)
+            
+            if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 100:
+                return {"error": "Failed to create valid audio file"}
+            
+            # Use transcription request for pure ASR
             inputs = self.processor.apply_transcription_request(
                 audio=temp_path,
                 language="en", 
@@ -184,7 +115,8 @@ class VoxtralModelManager:
                     max_new_tokens=512,
                     temperature=0.0,
                     do_sample=False,
-                    pad_token_id=self.processor.tokenizer.pad_token_id
+                    pad_token_id=self.processor.tokenizer.pad_token_id,
+                    eos_token_id=self.processor.tokenizer.eos_token_id
                 )
             
             # Decode output
@@ -193,17 +125,21 @@ class VoxtralModelManager:
             transcription = self.processor.tokenizer.decode(
                 generated_tokens, 
                 skip_special_tokens=True
-            )
+            ).strip()
             
             # Clean up temp file
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
             
+            # Validate transcription
+            if not transcription or len(transcription) < 2:
+                return {"error": "No meaningful transcription generated"}
+            
             logger.info(f"✅ Transcription: '{transcription[:100]}...'")
             
             return {
                 "type": "transcription",
-                "text": transcription.strip(),
+                "text": transcription,
                 "language": "en",
                 "confidence": 0.95,
                 "timestamp": asyncio.get_event_loop().time()
@@ -218,40 +154,31 @@ class VoxtralModelManager:
                     pass
             return {"error": f"Transcription failed: {str(e)}"}
     
-    async def understand_audio(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """UNDERSTANDING MODE: Audio -> Text -> LLM Response (ASR + LLM)"""
+    async def understand_audio(self, audio_data: bytes, query: str = None) -> Dict[str, Any]:
+        """UNDERSTANDING MODE: Audio -> Intelligent Response (ASR + LLM) with robust handling"""
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
         temp_path = None
         try:
-            # Extract audio from message
-            audio_data = message.get("audio")
+            # Validate input
+            if not audio_data or len(audio_data) < 100:
+                return {"error": "Invalid or insufficient audio data"}
             
-            if not audio_data:
-                return {"error": "No audio data provided"}
+            # Create temporary WAV file from audio data
+            temp_path = self._audio_bytes_to_wav_file(audio_data)
             
-            # Handle base64 encoded audio from browser
-            if isinstance(audio_data, str):
-                try:
-                    audio_bytes = base64.b64decode(audio_data)
-                except Exception as e:
-                    return {"error": f"Failed to decode base64 audio: {e}"}
-            else:
-                audio_bytes = audio_data
+            if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 100:
+                return {"error": "Failed to create valid audio file"}
             
-            # Convert to WAV file
-            temp_path = self._convert_webm_to_wav(audio_bytes)
-            
-            # UNDERSTANDING MODE: Audio-only conversation for intelligent response
-            # This will do ASR + LLM processing automatically
+            # UNDERSTANDING MODE: Audio conversation for intelligent response
             conversation = [
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "audio",
-                            "path": temp_path  # Just audio, no text needed!
+                            "path": temp_path
                         }
                     ]
                 }
@@ -274,7 +201,8 @@ class VoxtralModelManager:
                     temperature=0.2,
                     top_p=0.95,
                     do_sample=True,
-                    pad_token_id=self.processor.tokenizer.pad_token_id
+                    pad_token_id=self.processor.tokenizer.pad_token_id,
+                    eos_token_id=self.processor.tokenizer.eos_token_id
                 )
             
             # Decode output
@@ -283,18 +211,22 @@ class VoxtralModelManager:
             response = self.processor.tokenizer.decode(
                 generated_tokens, 
                 skip_special_tokens=True
-            )
+            ).strip()
             
             # Clean up temp file
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
             
+            # Validate response
+            if not response or len(response) < 2:
+                return {"error": "No meaningful response generated"}
+            
             logger.info(f"✅ Understanding: '{response[:100]}...'")
             
             return {
                 "type": "understanding",
-                "response": response.strip(),
-                "query": "Audio understanding (no text needed)",
+                "response": response,
+                "query": query or "Audio understanding",
                 "timestamp": asyncio.get_event_loop().time()
             }
             
@@ -307,6 +239,53 @@ class VoxtralModelManager:
                     pass
             return {"error": f"Understanding failed: {str(e)}"}
     
+    def _audio_bytes_to_wav_file(self, audio_bytes: bytes) -> str:
+        """Convert audio bytes to WAV file with robust error handling"""
+        try:
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
+            os.close(temp_fd)
+            
+            # Check if it's already a WAV file
+            if audio_bytes.startswith(b'RIFF') and b'WAVE' in audio_bytes[:20]:
+                # It's already a WAV file
+                with open(temp_path, 'wb') as f:
+                    f.write(audio_bytes)
+                logger.info(f"✅ Used existing WAV format: {len(audio_bytes)} bytes")
+                return temp_path
+            
+            # Assume raw PCM data
+            if len(audio_bytes) % 2 == 1:
+                audio_bytes = audio_bytes[:-1]
+            
+            if len(audio_bytes) < 32:  # Too small
+                raise ValueError("Audio data too small")
+            
+            # Convert to numpy array
+            try:
+                audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+            except Exception as e:
+                logger.error(f"Failed to convert audio bytes to array: {e}")
+                raise
+            
+            # Create WAV file
+            with wave.open(temp_path, 'wb') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(16000)  # 16kHz
+                wav_file.writeframes(audio_array.tobytes())
+            
+            logger.info(f"✅ Created WAV file: {len(audio_bytes)} bytes -> {temp_path}")
+            return temp_path
+            
+        except Exception as e:
+            logger.error(f"Failed to create WAV file: {e}")
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            raise RuntimeError(f"Audio file creation failed: {e}")
+    
     def _count_parameters(self) -> int:
         """Count total model parameters"""
         if self.model is None:
@@ -318,14 +297,19 @@ class VoxtralModelManager:
         if not torch.cuda.is_available():
             return {"gpu_memory": 0.0}
         
-        allocated = torch.cuda.memory_allocated() / 1024**3
-        cached = torch.cuda.memory_reserved() / 1024**3
-        
-        return {
-            "gpu_allocated_gb": round(allocated, 2),
-            "gpu_cached_gb": round(cached, 2),
-            "gpu_total_gb": torch.cuda.get_device_properties(0).total_memory / 1024**3
-        }
+        try:
+            allocated = torch.cuda.memory_allocated() / 1024**3
+            cached = torch.cuda.memory_reserved() / 1024**3
+            total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            
+            return {
+                "gpu_allocated_gb": round(allocated, 2),
+                "gpu_cached_gb": round(cached, 2),
+                "gpu_total_gb": round(total, 2)
+            }
+        except Exception as e:
+            logger.error(f"Error getting GPU memory usage: {e}")
+            return {"gpu_memory": 0.0}
     
     async def cleanup(self) -> None:
         """Clean up model resources"""
