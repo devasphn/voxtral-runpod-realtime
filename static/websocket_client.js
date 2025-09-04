@@ -1,5 +1,5 @@
-// Voxtral Mini 3B WebSocket Client
-class VoxtralClient {
+// PERFECT WEBSOCKET CLIENT - HANDLES UNIFIED APPROACH WITH ROBUST ERROR HANDLING
+class PerfectVoxtralClient {
     constructor() {
         this.websocket = null;
         this.isConnected = false;
@@ -8,12 +8,17 @@ class VoxtralClient {
         this.audioStream = null;
         this.serviceType = 'transcribe';
         
-        // Audio configuration
+        // Enhanced audio configuration
         this.audioConfig = {
             sampleRate: 16000,
             channels: 1,
             mimeType: 'audio/webm;codecs=opus'
         };
+        
+        // Connection retry configuration
+        this.maxRetries = 3;
+        this.retryDelay = 2000;
+        this.currentRetries = 0;
         
         this.initializeUI();
         this.loadSystemInfo();
@@ -37,7 +42,7 @@ class VoxtralClient {
             logsContainer: document.getElementById('logs-container')
         };
         
-        // Bind event listeners
+        // Bind event listeners with error handling
         this.elements.connectBtn.addEventListener('click', () => this.connect());
         this.elements.disconnectBtn.addEventListener('click', () => this.disconnect());
         this.elements.recordBtn.addEventListener('click', () => this.toggleRecording());
@@ -58,6 +63,10 @@ class VoxtralClient {
     async loadSystemInfo() {
         try {
             const response = await fetch('/model/info');
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
             const info = await response.json();
             
             this.elements.systemInfo.innerHTML = `
@@ -66,7 +75,7 @@ class VoxtralClient {
                 <div><strong>Parameters:</strong> ${info.model_size}</div>
                 <div><strong>Context Length:</strong> ${info.context_length}</div>
                 <div><strong>Languages:</strong> ${info.supported_languages.join(', ')}</div>
-                <div><strong>Capabilities:</strong> ${info.capabilities.join(', ')}</div>
+                <div><strong>Processing:</strong> ${info.audio_processing}</div>
             `;
             
             this.updateStatus('model', 'loaded', 'loaded');
@@ -86,17 +95,19 @@ class VoxtralClient {
     async connect() {
         if (this.isConnected) return;
         
-        this.log('Connecting to Voxtral service...', 'info');
+        this.log(`Connecting to ${this.serviceType} service...`, 'info');
         
         try {
             const wsUrl = this.getWebSocketURL();
             this.websocket = new WebSocket(wsUrl);
             
+            // Set up event handlers with robust error handling
             this.websocket.onopen = () => {
                 this.isConnected = true;
+                this.currentRetries = 0;
                 this.updateStatus('connection', 'connected', 'connected');
                 this.updateButtons();
-                this.log(`Connected to ${this.serviceType} service`, 'success');
+                this.log(`✅ Connected to ${this.serviceType} service`, 'success');
             };
             
             this.websocket.onmessage = (event) => {
@@ -109,14 +120,29 @@ class VoxtralClient {
             };
             
             this.websocket.onerror = (error) => {
-                this.log('WebSocket error: ' + error.message, 'error');
+                this.log('WebSocket error occurred', 'error');
+                console.error('WebSocket error:', error);
             };
             
-            this.websocket.onclose = () => {
+            this.websocket.onclose = (event) => {
                 this.isConnected = false;
                 this.updateStatus('connection', 'disconnected', 'disconnected');
                 this.updateButtons();
-                this.log('Disconnected from service', 'warning');
+                
+                if (event.wasClean) {
+                    this.log('Connection closed cleanly', 'info');
+                } else {
+                    this.log(`Connection lost (code: ${event.code})`, 'warning');
+                    
+                    // Auto-reconnect logic
+                    if (this.currentRetries < this.maxRetries) {
+                        this.currentRetries++;
+                        this.log(`Attempting reconnection (${this.currentRetries}/${this.maxRetries})...`, 'info');
+                        setTimeout(() => this.connect(), this.retryDelay);
+                    } else {
+                        this.log('Max reconnection attempts reached', 'error');
+                    }
+                }
                 
                 if (this.isRecording) {
                     this.stopRecording();
@@ -133,13 +159,14 @@ class VoxtralClient {
         if (!this.isConnected) return;
         
         this.log('Disconnecting...', 'info');
+        this.currentRetries = this.maxRetries; // Prevent auto-reconnect
         
         if (this.isRecording) {
             this.stopRecording();
         }
         
         if (this.websocket) {
-            this.websocket.close();
+            this.websocket.close(1000, 'User disconnected');
             this.websocket = null;
         }
     }
@@ -161,7 +188,7 @@ class VoxtralClient {
         try {
             this.log('Starting audio recording...', 'info');
             
-            // Request microphone access
+            // Request microphone access with enhanced constraints
             this.audioStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     sampleRate: this.audioConfig.sampleRate,
@@ -172,25 +199,50 @@ class VoxtralClient {
                 }
             });
             
-            // Create media recorder
+            // Check if the desired MIME type is supported
+            let mimeType = this.audioConfig.mimeType;
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                // Fallback options
+                const fallbacks = [
+                    'audio/webm;codecs=opus',
+                    'audio/webm',
+                    'audio/mp4',
+                    'audio/ogg;codecs=opus'
+                ];
+                
+                mimeType = fallbacks.find(type => MediaRecorder.isTypeSupported(type)) || '';
+                if (mimeType) {
+                    this.log(`Using fallback MIME type: ${mimeType}`, 'warning');
+                } else {
+                    throw new Error('No supported audio MIME type found');
+                }
+            }
+            
+            // Create media recorder with robust error handling
             this.mediaRecorder = new MediaRecorder(this.audioStream, {
-                mimeType: this.audioConfig.mimeType
+                mimeType: mimeType
             });
             
             // Handle audio data
             this.mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0 && this.isConnected) {
+                if (event.data && event.data.size > 0 && this.isConnected) {
                     this.sendAudioData(event.data);
                 }
             };
             
-            // Start recording with 500ms intervals
-            this.mediaRecorder.start(500);
+            this.mediaRecorder.onerror = (error) => {
+                this.log('MediaRecorder error: ' + error.error, 'error');
+                this.stopRecording();
+            };
+            
+            // Start recording with appropriate interval
+            const recordingInterval = this.serviceType === 'transcribe' ? 500 : 1000;
+            this.mediaRecorder.start(recordingInterval);
             
             this.isRecording = true;
             this.updateStatus('audio', 'recording', 'recording');
             this.updateButtons();
-            this.log('Recording started', 'success');
+            this.log(`Recording started (${mimeType})`, 'success');
             
         } catch (error) {
             this.log('Failed to start recording: ' + error.message, 'error');
@@ -201,38 +253,55 @@ class VoxtralClient {
     stopRecording() {
         this.log('Stopping audio recording...', 'info');
         
-        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-            this.mediaRecorder.stop();
+        try {
+            if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+                this.mediaRecorder.stop();
+            }
+            
+            if (this.audioStream) {
+                this.audioStream.getTracks().forEach(track => {
+                    track.stop();
+                });
+                this.audioStream = null;
+            }
+            
+            this.mediaRecorder = null;
+            this.isRecording = false;
+            this.updateStatus('audio', 'stopped', 'not recording');
+            this.updateButtons();
+            this.log('Recording stopped', 'info');
+            
+        } catch (error) {
+            this.log('Error stopping recording: ' + error.message, 'error');
         }
-        
-        if (this.audioStream) {
-            this.audioStream.getTracks().forEach(track => track.stop());
-            this.audioStream = null;
-        }
-        
-        this.isRecording = false;
-        this.updateStatus('audio', 'stopped', 'not recording');
-        this.updateButtons();
-        this.log('Recording stopped', 'info');
     }
     
     async sendAudioData(audioBlob) {
         try {
+            if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+                this.log('WebSocket not ready, skipping audio data', 'warning');
+                return;
+            }
+            
             if (this.serviceType === 'transcribe') {
-                // Send raw audio data for transcription
+                // Send raw binary audio data for transcription
                 const arrayBuffer = await audioBlob.arrayBuffer();
-                this.websocket.send(arrayBuffer);
+                if (arrayBuffer.byteLength > 0) {
+                    this.websocket.send(arrayBuffer);
+                }
             } else {
-                // For understanding, send JSON with audio and query
+                // For understanding, send JSON with base64 audio and query
                 const arrayBuffer = await audioBlob.arrayBuffer();
-                const audioData = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-                
-                const message = {
-                    audio: audioData,
-                    text: this.elements.textQuery.value || 'What can you hear in this audio?'
-                };
-                
-                this.websocket.send(JSON.stringify(message));
+                if (arrayBuffer.byteLength > 0) {
+                    const audioData = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+                    
+                    const message = {
+                        audio: audioData,
+                        text: this.elements.textQuery.value || 'What can you hear in this audio?'
+                    };
+                    
+                    this.websocket.send(JSON.stringify(message));
+                }
             }
         } catch (error) {
             this.log('Failed to send audio data: ' + error.message, 'error');
@@ -247,17 +316,17 @@ class VoxtralClient {
         
         if (data.error) {
             this.log('Service error: ' + data.error, 'error');
-            this.addResult('error', data.error, new Date());
+            this.addResult('error', `❌ ${data.error}`, new Date());
             return;
         }
         
-        // Handle results
+        // Handle successful results
         if (data.type === 'transcription' && data.text) {
             this.addResult('transcription', data.text, new Date());
-            this.log('Transcription received', 'success');
+            this.log('✅ Transcription received', 'success');
         } else if (data.type === 'understanding' && data.response) {
             this.addResult('understanding', data.response, new Date());
-            this.log('Understanding response received', 'success');
+            this.log('✅ Understanding response received', 'success');
         }
     }
     
@@ -268,12 +337,18 @@ class VoxtralClient {
             noResults.remove();
         }
         
-        // Create result element
+        // Create result element with enhanced styling
         const resultElement = document.createElement('div');
         resultElement.className = 'result-item';
+        
+        // Color coding based on type
+        let typeClass = 'result-transcription';
+        if (type === 'understanding') typeClass = 'result-understanding';
+        if (type === 'error') typeClass = 'result-error';
+        
         resultElement.innerHTML = `
             <div class="result-header">
-                <span class="result-type">${type}</span>
+                <span class="result-type ${typeClass}">${type}</span>
                 <span class="result-time">${timestamp.toLocaleTimeString()}</span>
             </div>
             <div class="result-content">${content}</div>
@@ -282,9 +357,9 @@ class VoxtralClient {
         // Add to container (newest first)
         this.elements.resultsContainer.insertBefore(resultElement, this.elements.resultsContainer.firstChild);
         
-        // Keep only last 10 results
+        // Keep only last 15 results
         const results = this.elements.resultsContainer.querySelectorAll('.result-item');
-        if (results.length > 10) {
+        if (results.length > 15) {
             results[results.length - 1].remove();
         }
     }
@@ -324,9 +399,9 @@ class VoxtralClient {
         
         this.elements.logsContainer.insertBefore(logElement, this.elements.logsContainer.firstChild);
         
-        // Keep only last 50 log entries
+        // Keep only last 100 log entries
         const logs = this.elements.logsContainer.querySelectorAll('.log-entry');
-        if (logs.length > 50) {
+        if (logs.length > 100) {
             logs[logs.length - 1].remove();
         }
         
@@ -337,7 +412,11 @@ class VoxtralClient {
     }
 }
 
-// Initialize client when page loads
+// Initialize client when page loads with error handling
 document.addEventListener('DOMContentLoaded', () => {
-    window.voxtralClient = new VoxtralClient();
+    try {
+        window.voxtralClient = new PerfectVoxtralClient();
+    } catch (error) {
+        console.error('Failed to initialize Voxtral client:', error);
+    }
 });
