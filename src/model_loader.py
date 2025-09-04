@@ -10,9 +10,6 @@ import base64
 import numpy as np
 
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
-from mistral_common.protocol.transcription.request import TranscriptionRequest
-from mistral_common.protocol.instruct.messages import RawAudio
-from mistral_common.audio import Audio
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +111,7 @@ class VoxtralModelManager:
             raise RuntimeError(f"Audio processing failed: {e}")
     
     async def transcribe_audio(self, audio_data: bytes) -> Dict[str, Any]:
-        """Transcribe audio data to text using proper Voxtral transcription API"""
+        """Transcribe audio data to text using Voxtral transcription API"""
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
@@ -123,22 +120,7 @@ class VoxtralModelManager:
             # Convert bytes to WAV file
             temp_path = self._bytes_to_wav_file(audio_data)
             
-            # Create Mistral Audio object
-            audio = Audio.from_file(temp_path, strict=False)
-            raw_audio = RawAudio.from_audio(audio)
-            
-            # Create proper transcription request
-            transcription_request = TranscriptionRequest(
-                model=self.model_name,
-                audio=raw_audio,
-                language="en",
-                temperature=0.0
-            )
-            
-            # Convert to inputs for the model
-            inputs = transcription_request.to_openai(exclude=("top_p", "seed"))
-            
-            # Apply processor for transcription
+            # SIMPLIFIED: Use processor directly without mistral_common complications
             model_inputs = self.processor.apply_transcription_request(
                 audio=temp_path,
                 language="en",
@@ -191,7 +173,7 @@ class VoxtralModelManager:
             return {"error": f"Transcription failed: {str(e)}"}
     
     async def understand_audio(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Process audio with understanding capabilities using correct format"""
+        """Process audio with understanding capabilities"""
         if not self.is_loaded:
             return {"error": "Model not loaded"}
         
@@ -216,14 +198,14 @@ class VoxtralModelManager:
             # Convert to WAV file
             temp_path = self._bytes_to_wav_file(audio_bytes)
             
-            # Create conversation with audio and text using CORRECT Voxtral format
+            # SIMPLIFIED: Create conversation with audio file path
             conversation = [
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "input_audio",  # FIXED: Use "input_audio" not "audio"
-                            "input_audio": temp_path
+                            "type": "audio",
+                            "audio": temp_path
                         },
                         {
                             "type": "text", 
