@@ -1,227 +1,286 @@
 import asyncio
 import logging
-from contextlib import asynccontextmanager
-from typing import List, Dict, Any
-
-import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
 import torch
+from typing import Optional, Dict, Any, Union
+import gc
+import tempfile
+import os
+import wave
+import base64
+import numpy as np
 
-from config.settings import Settings
-from config.logging_config import setup_logging
-from src.websocket_handler import WebSocketManager
-from src.model_loader import VoxtralModelManager
-from src.audio_processor import AudioProcessor
-from src.utils import get_system_info
+from transformers import VoxtralForConditionalGeneration, AutoProcessor
 
-# Initialize logging
-setup_logging()
 logger = logging.getLogger(__name__)
 
-# Global settings
-settings = Settings()
-
-# Global model manager and audio processor
-model_manager = None
-ws_manager = WebSocketManager()
-audio_processor = AudioProcessor(
-    sample_rate=16000,
-    channels=1,
-    chunk_duration_ms=30
-)
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan management"""
-    global model_manager
+class VoxtralModelManager:
+    """CORRECT: Manages Voxtral Mini 3B model with PROPER API usage"""
     
-    # Startup
-    logger.info("🚀 Starting PERFECT Voxtral Real-Time Server...")
+    def __init__(
+        self, 
+        model_name: str = "mistralai/Voxtral-Mini-3B-2507",
+        device: str = "cuda",
+        torch_dtype: torch.dtype = torch.bfloat16
+    ):
+        self.model_name = model_name
+        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
+        self.torch_dtype = torch_dtype
+        
+        # Model components
+        self.model: Optional[VoxtralForConditionalGeneration] = None
+        self.processor: Optional[AutoProcessor] = None
+        
+        # State
+        self.is_loaded = False
+        self.model_info = {}
+        
+        logger.info(f"Initialized VoxtralModelManager for {model_name} on {self.device}")
     
-    # Initialize model
-    try:
-        model_manager = VoxtralModelManager(
-            model_name=settings.MODEL_NAME,
-            device=settings.DEVICE,
-            torch_dtype=settings.TORCH_DTYPE
-        )
-        await model_manager.load_model()
-        logger.info("✅ Model loaded with CORRECT processor!")
-    except Exception as e:
-        logger.error(f"❌ Failed to load model: {e}")
-        raise RuntimeError(f"Model loading failed: {e}")
+    async def load_model(self) -> None:
+        """Load Voxtral model and processor - CORRECT METHOD"""
+        try:
+            logger.info(f"🔄 Loading Voxtral model: {self.model_name}")
+            
+            # Clear GPU memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                gc.collect()
+            
+            # Load processor
+            logger.info("Loading processor...")
+            self.processor = AutoProcessor.from_pretrained(self.model_name)
+            
+            # Load model
+            logger.info("Loading model...")
+            self.model = VoxtralForConditionalGeneration.from_pretrained(
+                self.model_name,
+                torch_dtype=self.torch_dtype,
+                device_map="auto",
+                trust_remote_code=True,
+                low_cpu_mem_usage=True
+            )
+            
+            # Set to evaluation mode
+            self.model.eval()
+            
+            # Store model info
+            self.model_info = {
+                "model_name": self.model_name,
+                "device": str(self.device),
+                "dtype": str(self.torch_dtype),
+                "parameters": self._count_parameters(),
+                "memory_usage": self._get_memory_usage()
+            }
+            
+            self.is_loaded = True
+            logger.info(f"✅ Model loaded successfully: {self.model_info}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to load model: {e}")
+            raise RuntimeError(f"Model loading failed: {e}")
     
-    yield
+    def _save_wav_bytes(self, audio_bytes: bytes) -> str:
+        """Save audio bytes as WAV file"""
+        try:
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
+            os.close(temp_fd)
+            
+            with open(temp_path, 'wb') as f:
+                f.write(audio_bytes)
+            
+            return temp_path
+            
+        except Exception as e:
+            logger.error(f"Failed to save WAV file: {e}")
+            raise RuntimeError(f"WAV file creation failed: {e}")
     
-    # Shutdown
-    logger.info("🛑 Shutting down server...")
-    if model_manager:
-        await model_manager.cleanup()
-    await audio_processor.cleanup()
-
-# Create FastAPI app
-app = FastAPI(
-    title="Voxtral Mini 3B - PERFECT Real-Time API",
-    description="TRANSCRIPTION = ASR | UNDERSTANDING = ASR + LLM",
-    version="2.0.0",
-    lifespan=lifespan
-)
-
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-@app.get("/")
-async def root():
-    """Serve the main test client page"""
-    with open("static/index.html", "r") as f:
-        html_content = f.read()
-    return HTMLResponse(content=html_content)
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    try:
-        system_info = get_system_info()
-        model_status = "loaded" if model_manager and model_manager.is_loaded else "not_loaded"
+    async def transcribe_audio(self, audio_data: bytes) -> Dict[str, Any]:
+        """TRANSCRIPTION MODE: Audio -> Text (ASR only) - CORRECT API"""
+        if not self.is_loaded:
+            return {"error": "Model not loaded"}
+        
+        temp_path = None
+        try:
+            # Save WAV bytes to temp file
+            temp_path = self._save_wav_bytes(audio_data)
+            
+            # Use apply_transcription_request for pure ASR
+            logger.info("🎤 Running transcription with apply_transcription_request...")
+            inputs = self.processor.apply_transcription_request(
+                language="en", 
+                audio=temp_path,
+                model_id=self.model_name,
+                return_tensors="pt"
+            )
+            
+            # Move to device
+            inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+            
+            # Generate transcription
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=512,
+                    temperature=0.0,
+                    do_sample=False,
+                    pad_token_id=self.processor.tokenizer.pad_token_id
+                )
+            
+            # Decode output
+            input_length = inputs['input_ids'].shape[1]
+            generated_tokens = outputs[0][input_length:]
+            transcription = self.processor.tokenizer.decode(
+                generated_tokens, 
+                skip_special_tokens=True
+            )
+            
+            # Clean up temp file
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+            logger.info(f"✅ Transcription completed: '{transcription[:100]}...'")
+            
+            return {
+                "type": "transcription",
+                "text": transcription.strip(),
+                "language": "en",
+                "confidence": 0.95,
+                "timestamp": asyncio.get_event_loop().time()
+            }
+            
+        except Exception as e:
+            logger.error(f"Transcription error: {e}")
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            return {"error": f"Transcription failed: {str(e)}"}
+    
+    async def understand_audio(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """UNDERSTANDING MODE: Audio -> ASR + LLM Response - CORRECT API"""
+        if not self.is_loaded:
+            return {"error": "Model not loaded"}
+        
+        temp_path = None
+        try:
+            # Extract audio from message
+            audio_data = message.get("audio")
+            
+            if not audio_data:
+                return {"error": "No audio data provided"}
+            
+            # Handle base64 encoded audio from browser
+            if isinstance(audio_data, str):
+                try:
+                    audio_bytes = base64.b64decode(audio_data)
+                except Exception as e:
+                    return {"error": f"Failed to decode base64 audio: {e}"}
+            else:
+                audio_bytes = audio_data
+            
+            # Save as temp WAV file
+            temp_path = self._save_wav_bytes(audio_bytes)
+            
+            # Use apply_chat_template for understanding (ASR + LLM)
+            logger.info("🧠 Running understanding with apply_chat_template...")
+            conversation = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "audio",
+                            "path": temp_path
+                        }
+                    ]
+                }
+            ]
+            
+            # Apply chat template for understanding
+            inputs = self.processor.apply_chat_template(
+                conversation,
+                return_tensors="pt"
+            )
+            
+            # Move to device
+            inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+            
+            # Generate intelligent response (ASR + LLM)
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=512,
+                    temperature=0.2,
+                    top_p=0.95,
+                    do_sample=True,
+                    pad_token_id=self.processor.tokenizer.pad_token_id
+                )
+            
+            # Decode output
+            input_length = inputs['input_ids'].shape[1]
+            generated_tokens = outputs[0][input_length:]
+            response = self.processor.tokenizer.decode(
+                generated_tokens, 
+                skip_special_tokens=True
+            )
+            
+            # Clean up temp file
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+            logger.info(f"✅ Understanding completed: '{response[:100]}...'")
+            
+            return {
+                "type": "understanding",
+                "response": response.strip(),
+                "query": "Audio understanding (speech -> intelligent response)",
+                "timestamp": asyncio.get_event_loop().time()
+            }
+            
+        except Exception as e:
+            logger.error(f"Understanding error: {e}")
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            return {"error": f"Understanding failed: {str(e)}"}
+    
+    def _count_parameters(self) -> int:
+        """Count total model parameters"""
+        if self.model is None:
+            return 0
+        return sum(p.numel() for p in self.model.parameters())
+    
+    def _get_memory_usage(self) -> Dict[str, float]:
+        """Get GPU memory usage"""
+        if not torch.cuda.is_available():
+            return {"gpu_memory": 0.0}
+        
+        allocated = torch.cuda.memory_allocated() / 1024**3
+        cached = torch.cuda.memory_reserved() / 1024**3
         
         return {
-            "status": "healthy",
-            "model_status": model_status,
-            "active_connections": ws_manager.connection_count,
-            "transcription_mode": "ASR only - Speech to Text",
-            "understanding_mode": "ASR + LLM - Speech to Intelligent Response",
-            "audio_processing": "FFmpeg WebM streaming",
-            "system": system_info,
-            "timestamp": asyncio.get_event_loop().time()
+            "gpu_allocated_gb": round(allocated, 2),
+            "gpu_cached_gb": round(cached, 2),
+            "gpu_total_gb": torch.cuda.get_device_properties(0).total_memory / 1024**3
         }
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/model/info")
-async def model_info():
-    """Get model information"""
-    if not model_manager or not model_manager.is_loaded:
-        raise HTTPException(status_code=503, detail="Model not loaded")
     
-    return {
-        "model_name": settings.MODEL_NAME,
-        "model_size": "3B parameters", 
-        "device": str(settings.DEVICE),
-        "dtype": str(settings.TORCH_DTYPE),
-        "context_length": "32K tokens",
-        "audio_processing": "FFmpeg WebM -> PCM streaming",
-        "transcription_mode": "ASR only - converts speech to text",
-        "understanding_mode": "ASR + LLM - speech to intelligent response",
-        "supported_languages": [
-            "English", "Spanish", "French", "Portuguese", 
-            "Hindi", "German", "Dutch", "Italian"
-        ],
-        "capabilities": [
-            "✅ Pure ASR transcription",
-            "✅ Audio understanding (speak -> get intelligent reply)",
-            "✅ Real-time FFmpeg WebM processing",
-            "✅ Browser MediaRecorder support",
-            "✅ Multi-language support"
-        ]
-    }
-
-@app.websocket("/ws/transcribe")
-async def websocket_transcribe(websocket: WebSocket):
-    """TRANSCRIPTION MODE: Speech -> Text (ASR only) - FFmpeg streaming"""
-    await ws_manager.connect(websocket, "transcribe")
-    
-    try:
-        while True:
-            # Receive WebM audio from browser
-            data = await websocket.receive_bytes()
-            
-            # Process WebM chunk through FFmpeg streaming
-            result = await audio_processor.process_webm_chunk(data)
-            
-            if result and "audio_data" in result:
-                duration_ms = result.get("duration_ms", 0)
-                if duration_ms > 500:  # Process audio longer than 500ms
-                    logger.info(f"🎤 TRANSCRIBING FFmpeg processed audio ({duration_ms:.0f}ms)")
-                    
-                    if model_manager and model_manager.is_loaded:
-                        # Use TRANSCRIPTION mode - ASR only
-                        transcription_result = await model_manager.transcribe_audio(result["audio_data"])
-                        
-                        # Send transcription if meaningful
-                        if (transcription_result.get("text") and 
-                            transcription_result["text"].strip() and 
-                            not any(phrase in transcription_result["text"].lower() for phrase in 
-                                   ["i'm sorry", "could not", "didn't catch", "can't understand"])):
-                            
-                            await websocket.send_json(transcription_result)
-                            logger.info(f"✅ TRANSCRIBED: '{transcription_result['text'][:50]}...'")
-                    else:
-                        await websocket.send_json({"error": "Model not loaded"})
-                        
-    except WebSocketDisconnect:
-        logger.info("Transcription WebSocket disconnected")
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        try:
-            await websocket.send_json({"error": str(e)})
-        except:
-            pass
-    finally:
-        ws_manager.disconnect(websocket)
-
-@app.websocket("/ws/understand")
-async def websocket_understand(websocket: WebSocket):
-    """UNDERSTANDING MODE: Speech -> Intelligent Response (ASR + LLM) - FFmpeg streaming"""
-    await ws_manager.connect(websocket, "understand")
-    
-    try:
-        while True:
-            # Receive message
-            message = await websocket.receive_json()
-            
-            # Handle direct audio + text format
-            if model_manager and model_manager.is_loaded:
-                result = await model_manager.understand_audio(message)
-                await websocket.send_json(result)
-            else:
-                await websocket.send_json({"error": "Model not loaded"})
-                
-    except WebSocketDisconnect:
-        logger.info("Understanding WebSocket disconnected")
-    except Exception as e:
-        logger.error(f"WebSocket understanding error: {e}")
-        try:
-            await websocket.send_json({"error": str(e)})
-        except:
-            pass
-    finally:
-        ws_manager.disconnect(websocket)
-
-@app.get("/connections")
-async def get_connections():
-    """Get connection statistics"""
-    return {
-        "total_connections": ws_manager.connection_count,
-        "connections_by_type": ws_manager.get_connections_by_type(),
-        "max_connections": settings.MAX_CONCURRENT_CONNECTIONS,
-        "audio_stats": audio_processor.get_stats()
-    }
-
-@app.post("/audio/reset")
-async def reset_audio():
-    """Reset audio processor"""
-    audio_processor.reset()
-    return {"status": "Audio processor reset successfully"}
-
-if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=False,
-        log_level="info",
-        access_log=True
-    )
+    async def cleanup(self) -> None:
+        """Clean up model resources"""
+        logger.info("🧹 Cleaning up model resources...")
+        
+        if self.model is not None:
+            del self.model
+            self.model = None
+        
+        if self.processor is not None:
+            del self.processor
+            self.processor = None
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        gc.collect()
+        self.is_loaded = False
+        logger.info("✅ Model cleanup completed")
