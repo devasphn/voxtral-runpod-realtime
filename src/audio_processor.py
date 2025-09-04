@@ -1,4 +1,4 @@
-# FIXED AUDIO PROCESSOR - INTEGER SLICING AND PROPER METHOD NAMES
+# FIXED AUDIO PROCESSOR - WITH CORRECT THREADPOOL HANDLING AND STREAMING
 import asyncio
 import logging
 import numpy as np
@@ -17,8 +17,8 @@ import time
 
 logger = logging.getLogger(__name__)
 
-class EnhancedAudioProcessor:
-    """ENHANCED: WebM audio processing with conversation memory and robust handling"""
+class FixedAudioProcessor:
+    """FIXED: Audio processor with corrected ThreadPool handling and streaming"""
     
     def __init__(
         self,
@@ -32,45 +32,45 @@ class EnhancedAudioProcessor:
         self.chunk_duration_ms = chunk_duration_ms
         self.conversation_manager = conversation_manager
         
-        # Enhanced FFmpeg streaming with better error recovery
+        # FIXED: FFmpeg processes for both modes
         self.transcribe_ffmpeg_process = None
         self.understand_ffmpeg_process = None
         
-        # Enhanced PCM buffers with sliding window
+        # FIXED: PCM buffers with proper management
         self.transcribe_pcm_buffer = bytearray()
         self.understand_pcm_buffer = bytearray()
         
-        # FIXED: Enhanced thresholds for better sensitivity - ENSURE INTEGERS
-        self.transcribe_threshold = int(sample_rate * 0.5)  # 500ms for transcription - INTEGER
-        self.understand_threshold = int(sample_rate * 1.0)  # 1 second for understanding - INTEGER
+        # FIXED: Processing thresholds (ensure integers)
+        self.transcribe_threshold = int(sample_rate * 0.5)  # 500ms
+        self.understand_threshold = int(sample_rate * 1.0)  # 1 second
         
         # Voice Activity Detection
         try:
-            self.vad = webrtcvad.Vad(2)  # Moderate aggressiveness
+            self.vad = webrtcvad.Vad(2)
             self.vad_enabled = True
             logger.info("✅ WebRTC VAD initialized")
         except:
             self.vad = None
             self.vad_enabled = False
-            logger.warning("⚠️ WebRTC VAD not available, using fallback detection")
+            logger.warning("⚠️ WebRTC VAD not available")
         
-        # Enhanced statistics and monitoring
+        # Statistics
         self.chunks_processed = 0
         self.total_audio_length = 0
         self.speech_chunks_detected = 0
         self.processing_times = collections.deque(maxlen=100)
         
-        # Thread pool with better resource management
+        # FIXED: ThreadPoolExecutor without timeout parameter
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="AudioProc")
         
-        # Connection monitoring
+        # Connection tracking
         self.active_connections = set()
         self.last_activity = {}
         
-        logger.info(f"✅ ENHANCED AudioProcessor initialized: {sample_rate}Hz, {channels}ch, VAD: {self.vad_enabled}")
+        logger.info(f"✅ FIXED AudioProcessor initialized: {sample_rate}Hz, {channels}ch, VAD: {self.vad_enabled}")
     
     async def start_ffmpeg_decoder(self, mode: str, websocket=None):
-        """Enhanced FFmpeg process startup with better error recovery"""
+        """FIXED: Start FFmpeg decoder with better error handling"""
         try:
             # Track connection
             if websocket:
@@ -78,19 +78,18 @@ class EnhancedAudioProcessor:
                 self.active_connections.add(conn_id)
                 self.last_activity[conn_id] = time.time()
             
-            # Enhanced FFmpeg configuration
+            # FIXED: Improved FFmpeg configuration
             ffmpeg_process = (
                 ffmpeg
-                .input('pipe:0', format='webm')
+                .input('pipe:0', format='webm', thread_queue_size=512)
                 .output(
                     'pipe:1', 
                     format='s16le', 
                     acodec='pcm_s16le', 
                     ac=self.channels, 
                     ar=str(self.sample_rate),
-                    # Enhanced parameters for better quality
                     audio_bitrate='128k',
-                    bufsize='1024k'
+                    bufsize='512k'
                 )
                 .run_async(
                     pipe_stdin=True, 
@@ -103,21 +102,19 @@ class EnhancedAudioProcessor:
             
             if mode == "transcribe":
                 self.transcribe_ffmpeg_process = ffmpeg_process
-                # Start enhanced background PCM reader
-                asyncio.create_task(self._read_pcm_output_enhanced(mode, websocket))
-                logger.info("✅ Enhanced FFmpeg transcription decoder started")
+                asyncio.create_task(self._read_pcm_output_fixed(mode, websocket))
+                logger.info("✅ FIXED FFmpeg transcription decoder started")
             else:
                 self.understand_ffmpeg_process = ffmpeg_process
-                # Start enhanced background PCM reader
-                asyncio.create_task(self._read_pcm_output_enhanced(mode, websocket))
-                logger.info("✅ Enhanced FFmpeg understanding decoder started")
+                asyncio.create_task(self._read_pcm_output_fixed(mode, websocket))
+                logger.info("✅ FIXED FFmpeg understanding decoder started")
                 
         except Exception as e:
-            logger.error(f"Failed to start enhanced FFmpeg decoder for {mode}: {e}")
-            raise RuntimeError(f"Enhanced FFmpeg {mode} initialization failed: {e}")
+            logger.error(f"Failed to start FIXED FFmpeg decoder for {mode}: {e}")
+            raise RuntimeError(f"FIXED FFmpeg {mode} initialization failed: {e}")
     
-    async def _read_pcm_output_enhanced(self, mode: str, websocket=None):
-        """Enhanced background task to read PCM data with better error handling"""
+    async def _read_pcm_output_fixed(self, mode: str, websocket=None):
+        """FIXED: Background PCM reader with proper error handling"""
         loop = asyncio.get_event_loop()
         conn_id = id(websocket) if websocket else None
         
@@ -132,85 +129,87 @@ class EnhancedAudioProcessor:
         )
         
         consecutive_errors = 0
-        max_errors = 5
+        max_errors = 3  # FIXED: Reduced error threshold
         
         try:
             while ffmpeg_process and ffmpeg_process.stdout:
                 try:
-                    # Enhanced PCM data reading with timeout
+                    # FIXED: Read PCM data with timeout
                     chunk = await asyncio.wait_for(
                         loop.run_in_executor(
                             self.executor, 
                             ffmpeg_process.stdout.read, 
-                            8192  # Larger buffer for better performance
+                            4096
                         ),
-                        timeout=5.0  # 5 second timeout
+                        timeout=3.0  # FIXED: Reduced timeout
                     )
                     
                     if not chunk:
-                        logger.warning(f"Enhanced FFmpeg {mode} stdout closed")
+                        logger.warning(f"FIXED FFmpeg {mode} stdout closed")
                         break
                     
-                    # Add to PCM buffer with size management
+                    # Add to PCM buffer
                     pcm_buffer.extend(chunk)
                     
-                    # Prevent buffer overflow (keep last 30 seconds) - ENSURE INTEGER
-                    max_buffer_size = int(self.sample_rate * 30 * 2)  # 30 seconds of 16-bit audio - INTEGER
+                    # FIXED: Buffer size management (30 seconds max)
+                    max_buffer_size = int(self.sample_rate * 30 * 2)  # 30 seconds
                     if len(pcm_buffer) > max_buffer_size:
                         excess = len(pcm_buffer) - max_buffer_size
                         del pcm_buffer[:excess]
                         logger.debug(f"Trimmed {mode} buffer by {excess} bytes")
                     
-                    # Update connection activity
+                    # Update activity
                     if conn_id:
                         self.last_activity[conn_id] = time.time()
                     
-                    consecutive_errors = 0  # Reset error counter on success
+                    consecutive_errors = 0  # Reset on success
                     
                 except asyncio.TimeoutError:
-                    logger.warning(f"Enhanced FFmpeg {mode} read timeout")
+                    logger.debug(f"FIXED FFmpeg {mode} read timeout (normal)")
                     consecutive_errors += 1
                 except Exception as e:
-                    logger.error(f"Error reading enhanced FFmpeg {mode} output: {e}")
+                    logger.error(f"Error reading FIXED FFmpeg {mode} output: {e}")
                     consecutive_errors += 1
                 
-                # Break if too many consecutive errors
                 if consecutive_errors >= max_errors:
-                    logger.error(f"Too many errors reading {mode} output, stopping")
+                    logger.error(f"Too many consecutive errors in {mode}, stopping")
                     break
                     
         except Exception as e:
-            logger.error(f"Enhanced PCM reader task failed for {mode}: {e}")
+            logger.error(f"FIXED PCM reader failed for {mode}: {e}")
         finally:
-            # Cleanup connection tracking
+            # Cleanup
             if conn_id and conn_id in self.active_connections:
                 self.active_connections.discard(conn_id)
                 self.last_activity.pop(conn_id, None)
     
     async def process_webm_chunk_transcribe(self, webm_data: bytes, websocket=None) -> Optional[Dict[str, Any]]:
-        """Enhanced transcription processing with conversation context"""
+        """FIXED: Transcription processing with proper error handling"""
         start_time = time.time()
         
         try:
-            # Validate input
-            if not webm_data or len(webm_data) < 10:
+            # FIXED: Better input validation
+            if not webm_data or len(webm_data) < 50:  # Minimum valid WebM size
+                logger.debug("Insufficient WebM data")
                 return None
             
             if not self.transcribe_ffmpeg_process:
                 await self.start_ffmpeg_decoder("transcribe", websocket)
             
-            # Send WebM chunk to FFmpeg stdin with error recovery
+            # FIXED: Send to FFmpeg with error handling
             if self.transcribe_ffmpeg_process and self.transcribe_ffmpeg_process.stdin:
                 try:
                     self.transcribe_ffmpeg_process.stdin.write(webm_data)
                     self.transcribe_ffmpeg_process.stdin.flush()
-                    await asyncio.sleep(0.005)  # Small delay for processing
+                    
+                    # FIXED: Small processing delay
+                    await asyncio.sleep(0.01)
                     
                     self.chunks_processed += 1
                     
-                    # Check if we have enough PCM data to process
+                    # Check if ready to process
                     if len(self.transcribe_pcm_buffer) >= self.transcribe_threshold:
-                        result = self._process_pcm_buffer_enhanced("transcribe", websocket)
+                        result = self._process_pcm_buffer_fixed("transcribe", websocket)
                         
                         # Record processing time
                         processing_time = time.time() - start_time
@@ -219,60 +218,61 @@ class EnhancedAudioProcessor:
                         return result
                         
                 except BrokenPipeError:
-                    logger.warning("FFmpeg transcription process ended, restarting...")
+                    logger.warning("FFmpeg transcription pipe broken, restarting...")
                     await self._restart_ffmpeg_process("transcribe", websocket)
                 except Exception as e:
-                    logger.error(f"Error writing to enhanced FFmpeg transcription: {e}")
+                    logger.error(f"Error in FIXED transcription processing: {e}")
             
             return None
             
         except Exception as e:
-            logger.error(f"Enhanced WebM transcription chunk processing error: {e}")
-            return {"error": f"Enhanced processing failed: {str(e)}"}
+            logger.error(f"FIXED transcription error: {e}")
+            return {"error": f"FIXED processing failed: {str(e)}"}
     
     async def process_webm_chunk_understand(self, webm_data: bytes, websocket=None) -> Optional[Dict[str, Any]]:
-        """Enhanced understanding processing with conversation context"""
+        """FIXED: Understanding processing with proper error handling"""
         start_time = time.time()
         
         try:
-            # Validate input
-            if not webm_data or len(webm_data) < 10:
+            # FIXED: Input validation
+            if not webm_data or len(webm_data) < 50:
+                logger.debug("Insufficient WebM data for understanding")
                 return None
             
             if not self.understand_ffmpeg_process:
                 await self.start_ffmpeg_decoder("understand", websocket)
             
-            # Send WebM chunk to FFmpeg stdin with error recovery
+            # FIXED: Send to FFmpeg
             if self.understand_ffmpeg_process and self.understand_ffmpeg_process.stdin:
                 try:
                     self.understand_ffmpeg_process.stdin.write(webm_data)
                     self.understand_ffmpeg_process.stdin.flush()
-                    await asyncio.sleep(0.005)  # Small delay for processing
                     
-                    # Check if we have enough PCM data to process
+                    await asyncio.sleep(0.01)
+                    
+                    # Check if ready to process
                     if len(self.understand_pcm_buffer) >= self.understand_threshold:
-                        result = self._process_pcm_buffer_enhanced("understand", websocket)
+                        result = self._process_pcm_buffer_fixed("understand", websocket)
                         
-                        # Record processing time
                         processing_time = time.time() - start_time
                         self.processing_times.append(processing_time)
                         
                         return result
                         
                 except BrokenPipeError:
-                    logger.warning("FFmpeg understanding process ended, restarting...")
+                    logger.warning("FFmpeg understanding pipe broken, restarting...")
                     await self._restart_ffmpeg_process("understand", websocket)
                 except Exception as e:
-                    logger.error(f"Error writing to enhanced FFmpeg understanding: {e}")
+                    logger.error(f"Error in FIXED understanding processing: {e}")
             
             return None
             
         except Exception as e:
-            logger.error(f"Enhanced WebM understanding chunk processing error: {e}")
-            return {"error": f"Enhanced processing failed: {str(e)}"}
+            logger.error(f"FIXED understanding error: {e}")
+            return {"error": f"FIXED processing failed: {str(e)}"}
     
-    def _process_pcm_buffer_enhanced(self, mode: str, websocket=None) -> Dict[str, Any]:
-        """FIXED: Enhanced PCM buffer processing with conversation context and VAD - INTEGER SLICING"""
+    def _process_pcm_buffer_fixed(self, mode: str, websocket=None) -> Dict[str, Any]:
+        """FIXED: PCM buffer processing with proper integer handling"""
         try:
             pcm_buffer = (
                 self.transcribe_pcm_buffer if mode == "transcribe" 
@@ -286,34 +286,32 @@ class EnhancedAudioProcessor:
             if len(pcm_buffer) < threshold:
                 return None
             
-            # FIXED: Extract audio data for processing with overlap for continuity - ENSURE INTEGER SLICING
-            overlap_samples = int(self.sample_rate * 0.1)  # 100ms overlap - INTEGER
-            end_index = min(threshold + overlap_samples, len(pcm_buffer))  # Ensure we don't exceed buffer
+            # FIXED: Extract audio with overlap (proper integer slicing)
+            overlap_samples = int(self.sample_rate * 0.1)  # 100ms overlap
+            end_index = min(threshold + overlap_samples, len(pcm_buffer))
             
-            audio_data = bytes(pcm_buffer[:end_index])  # INTEGER SLICING
-            del pcm_buffer[:threshold]  # Keep overlap in buffer - INTEGER SLICING
+            audio_data = bytes(pcm_buffer[:end_index])
+            del pcm_buffer[:threshold]  # Keep overlap
             
-            # Create WAV file from PCM data
-            wav_bytes = self._pcm_to_wav_enhanced(audio_data)
+            # Create WAV file
+            wav_bytes = self._pcm_to_wav_fixed(audio_data)
             
             # Calculate duration
-            duration_ms = (len(audio_data) / 2) / self.sample_rate * 1000  # 16-bit PCM
-            
+            duration_ms = (len(audio_data) / 2) / self.sample_rate * 1000
             self.total_audio_length += duration_ms
             
-            # ENHANCED speech detection with VAD and fallback
-            speech_ratio = self._estimate_speech_ratio_enhanced(audio_data)
+            # FIXED: Speech detection
+            speech_ratio = self._estimate_speech_ratio_fixed(audio_data)
             
-            # Update statistics
             if speech_ratio > 0.1:
                 self.speech_chunks_detected += 1
             
-            # Get conversation context if available
+            # Get conversation context
             conversation_context = ""
             if self.conversation_manager and websocket:
                 conversation_context = self.conversation_manager.get_conversation_context(websocket)
             
-            logger.info(f"🎤 Enhanced processed {mode} PCM audio: {duration_ms:.0f}ms (Total: {self.total_audio_length:.1f}ms) - Speech: {speech_ratio:.3f} - Context: {bool(conversation_context)}")
+            logger.info(f"🎤 FIXED processed {mode}: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
             
             return {
                 "audio_data": wav_bytes,
@@ -323,31 +321,27 @@ class EnhancedAudioProcessor:
                 "channels": self.channels,
                 "mode": mode,
                 "processed_at": time.time(),
-                "enhanced": True,
+                "fixed": True,
                 "conversation_context": conversation_context,
                 "vad_enabled": self.vad_enabled
             }
             
         except Exception as e:
-            logger.error(f"Enhanced PCM buffer processing error for {mode}: {e}")
-            return {"error": f"Enhanced processing failed: {str(e)}"}
+            logger.error(f"FIXED PCM buffer processing error for {mode}: {e}")
+            return {"error": f"FIXED processing failed: {str(e)}"}
     
-    def _estimate_speech_ratio_enhanced(self, pcm_data: bytes) -> float:
-        """ENHANCED speech detection with WebRTC VAD and improved fallbacks"""
+    def _estimate_speech_ratio_fixed(self, pcm_data: bytes) -> float:
+        """FIXED: Speech detection with WebRTC VAD and fallbacks"""
         try:
-            # Convert PCM to numpy array
             audio_array = np.frombuffer(pcm_data, dtype=np.int16)
             
             if len(audio_array) == 0:
                 return 0.0
             
-            # Method 1: WebRTC VAD (if available)
+            # Method 1: WebRTC VAD
             if self.vad_enabled and self.vad:
                 try:
-                    # VAD works with specific frame sizes (10ms, 20ms, 30ms)
-                    frame_duration = 30  # 30ms frames
-                    frame_size = int(self.sample_rate * frame_duration / 1000)
-                    
+                    frame_size = int(self.sample_rate * 0.030)  # 30ms frames
                     speech_frames = 0
                     total_frames = 0
                     
@@ -360,96 +354,31 @@ class EnhancedAudioProcessor:
                             total_frames += 1
                     
                     if total_frames > 0:
-                        vad_ratio = speech_frames / total_frames
-                        logger.debug(f"WebRTC VAD ratio: {vad_ratio:.3f}")
-                        return vad_ratio
+                        return speech_frames / total_frames
+                        
                 except Exception as e:
-                    logger.debug(f"WebRTC VAD failed, using fallback: {e}")
+                    logger.debug(f"VAD error: {e}")
             
-            # Method 2: Enhanced energy-based detection
-            # Calculate RMS energy for the entire audio
+            # Method 2: Energy-based detection
             rms_energy = np.sqrt(np.mean(audio_array.astype(np.float64) ** 2))
+            energy_ratio = min(1.0, rms_energy / 1000.0)
             
-            # Adaptive threshold based on recent audio history
-            silence_threshold = 150  # Base threshold
+            # Method 3: Zero crossing rate
+            zero_crossings = np.sum(np.diff(np.signbit(audio_array)))
+            zcr_normalized = zero_crossings / len(audio_array)
+            zcr_ratio = 1.0 if 0.01 <= zcr_normalized <= 0.5 else 0.5
             
-            # Method 3: Frame-based analysis with improved logic
-            frame_size = int(self.sample_rate * 0.025)  # 25ms frames
-            hop_size = int(self.sample_rate * 0.010)   # 10ms hop
-            
-            speech_frames = 0
-            total_frames = 0
-            
-            for i in range(0, len(audio_array) - frame_size, hop_size):
-                frame = audio_array[i:i + frame_size]
-                frame_rms = np.sqrt(np.mean(frame.astype(np.float64) ** 2))
-                
-                # Enhanced detection: combine energy and spectral features
-                if frame_rms > silence_threshold:
-                    # Additional check: zero crossing rate (indicates speech vs noise)
-                    zero_crossings = np.sum(np.diff(np.signbit(frame)))
-                    zcr_normalized = zero_crossings / len(frame)
-                    
-                    # Speech typically has ZCR between 0.01 and 0.5
-                    if 0.01 <= zcr_normalized <= 0.5:
-                        speech_frames += 1
-                total_frames += 1
-            
-            frame_ratio = speech_frames / max(total_frames, 1) if total_frames > 0 else 0.0
-            
-            # Method 4: Spectral analysis for additional validation
-            spectral_ratio = self._spectral_analysis_speech_detection(audio_array)
-            
-            # Combine all methods with weighted average
-            rms_ratio = min(1.0, rms_energy / 1000.0)  # Normalize to 0-1
-            
-            # Weighted combination
-            final_ratio = (
-                frame_ratio * 0.5 +          # Energy-based frames (50%)
-                spectral_ratio * 0.3 +       # Spectral features (30%)
-                rms_ratio * 0.2              # Overall energy (20%)
-            )
-            
-            logger.debug(f"Enhanced speech detection: Frame={frame_ratio:.3f}, Spectral={spectral_ratio:.3f}, RMS={rms_ratio:.3f}, Final={final_ratio:.3f}")
+            # Combine methods
+            final_ratio = (energy_ratio * 0.7 + zcr_ratio * 0.3)
             
             return min(1.0, final_ratio)
             
         except Exception as e:
-            logger.error(f"Enhanced speech ratio estimation error: {e}")
-            return 0.3  # Conservative fallback value
+            logger.error(f"FIXED speech ratio error: {e}")
+            return 0.3  # Conservative fallback
     
-    def _spectral_analysis_speech_detection(self, audio_array: np.ndarray) -> float:
-        """Additional spectral analysis for speech detection"""
-        try:
-            # Simple spectral centroid calculation
-            # Speech typically has energy concentrated in certain frequency bands
-            
-            # Apply window to avoid edge effects
-            windowed = audio_array * np.hanning(len(audio_array))
-            
-            # Compute FFT
-            fft = np.abs(np.fft.rfft(windowed))
-            freqs = np.fft.rfftfreq(len(windowed), 1/self.sample_rate)
-            
-            # Focus on speech frequency range (300-3400 Hz)
-            speech_band_start = int(300 * len(fft) / (self.sample_rate / 2))
-            speech_band_end = int(3400 * len(fft) / (self.sample_rate / 2))
-            
-            speech_energy = np.sum(fft[speech_band_start:speech_band_end])
-            total_energy = np.sum(fft)
-            
-            if total_energy > 0:
-                speech_ratio = speech_energy / total_energy
-                return min(1.0, speech_ratio * 2)  # Boost speech band ratio
-            else:
-                return 0.0
-                
-        except Exception as e:
-            logger.debug(f"Spectral analysis failed: {e}")
-            return 0.0
-    
-    def _pcm_to_wav_enhanced(self, pcm_data: bytes) -> bytes:
-        """Enhanced PCM to WAV conversion with better error handling"""
+    def _pcm_to_wav_fixed(self, pcm_data: bytes) -> bytes:
+        """FIXED: PCM to WAV conversion"""
         try:
             wav_io = io.BytesIO()
             
@@ -460,50 +389,43 @@ class EnhancedAudioProcessor:
                 wav_file.writeframes(pcm_data)
             
             wav_bytes = wav_io.getvalue()
-            logger.debug(f"Enhanced WAV conversion: {len(pcm_data)} PCM bytes → {len(wav_bytes)} WAV bytes")
+            logger.debug(f"FIXED WAV conversion: {len(pcm_data)} PCM → {len(wav_bytes)} WAV bytes")
             
             return wav_bytes
             
         except Exception as e:
-            logger.error(f"Enhanced PCM to WAV conversion error: {e}")
-            raise RuntimeError(f"Enhanced WAV conversion failed: {e}")
+            logger.error(f"FIXED WAV conversion error: {e}")
+            raise RuntimeError(f"FIXED WAV conversion failed: {e}")
     
     async def _restart_ffmpeg_process(self, mode: str, websocket=None):
-        """Enhanced FFmpeg process restart with exponential backoff"""
+        """FIXED: FFmpeg restart with proper cleanup"""
         try:
-            logger.info(f"🔄 Restarting enhanced {mode} FFmpeg process...")
+            logger.info(f"🔄 Restarting FIXED {mode} FFmpeg process...")
             
             # Clean up old process
             if mode == "transcribe" and self.transcribe_ffmpeg_process:
                 try:
                     self.transcribe_ffmpeg_process.terminate()
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
                 except:
                     pass
                 self.transcribe_ffmpeg_process = None
             elif mode == "understand" and self.understand_ffmpeg_process:
                 try:
                     self.understand_ffmpeg_process.terminate()
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
                 except:
                     pass
                 self.understand_ffmpeg_process = None
             
-            # Wait before restart (exponential backoff could be added here)
-            await asyncio.sleep(0.5)
-            
-            # Restart process
+            # Restart
             await self.start_ffmpeg_decoder(mode, websocket)
             
         except Exception as e:
-            logger.error(f"Failed to restart enhanced {mode} process: {e}")
+            logger.error(f"Failed to restart FIXED {mode} process: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
-        """FIXED: Use standard method name for compatibility"""
-        return self.get_enhanced_stats()
-    
-    def get_enhanced_stats(self) -> Dict[str, Any]:
-        """Get comprehensive enhanced audio processing statistics"""
+        """Get processing statistics"""
         avg_processing_time = (
             sum(self.processing_times) / len(self.processing_times)
             if self.processing_times else 0.0
@@ -518,8 +440,8 @@ class EnhancedAudioProcessor:
             "speech_chunks_detected": self.speech_chunks_detected,
             "speech_detection_rate": round(speech_detection_rate, 3),
             "total_audio_length_ms": self.total_audio_length,
-            "transcribe_pcm_buffer_size": len(self.transcribe_pcm_buffer),
-            "understand_pcm_buffer_size": len(self.understand_pcm_buffer),
+            "transcribe_buffer_size": len(self.transcribe_pcm_buffer),
+            "understand_buffer_size": len(self.understand_pcm_buffer),
             "sample_rate": self.sample_rate,
             "channels": self.channels,
             "transcribe_ffmpeg_running": self.transcribe_ffmpeg_process is not None,
@@ -527,23 +449,11 @@ class EnhancedAudioProcessor:
             "vad_enabled": self.vad_enabled,
             "active_connections": len(self.active_connections),
             "avg_processing_time_ms": round(avg_processing_time * 1000, 2),
-            "conversation_manager_enabled": self.conversation_manager is not None,
-            "enhanced_features": [
-                "✅ WebRTC Voice Activity Detection",
-                "✅ Spectral Speech Analysis", 
-                "✅ Conversation Context Integration",
-                "✅ Enhanced Buffer Management",
-                "✅ Automatic Process Recovery",
-                "✅ Performance Monitoring"
-            ]
+            "fixed_version": True
         }
     
     def reset(self):
-        """FIXED: Use standard method name for compatibility"""
-        self.reset_enhanced()
-    
-    def reset_enhanced(self):
-        """Enhanced reset with comprehensive cleanup"""
+        """Reset processor state"""
         self.transcribe_pcm_buffer.clear()
         self.understand_pcm_buffer.clear()
         self.chunks_processed = 0
@@ -553,15 +463,11 @@ class EnhancedAudioProcessor:
         self.active_connections.clear()
         self.last_activity.clear()
         
-        logger.info("✅ Enhanced audio processor reset completed")
+        logger.info("✅ FIXED audio processor reset")
     
     async def cleanup(self):
-        """FIXED: Standard cleanup method name for compatibility"""
-        await self.cleanup_enhanced()
-    
-    async def cleanup_enhanced(self):
-        """Enhanced cleanup with comprehensive resource management"""
-        logger.info("🧹 Starting enhanced audio processor cleanup...")
+        """FIXED: Cleanup without timeout parameter"""
+        logger.info("🧹 Starting FIXED audio processor cleanup...")
         
         processes = [
             ("transcribe", self.transcribe_ffmpeg_process),
@@ -578,7 +484,6 @@ class EnhancedAudioProcessor:
                     if process.stderr:
                         process.stderr.close()
                     
-                    # Graceful termination
                     process.terminate()
                     try:
                         await asyncio.wait_for(asyncio.to_thread(process.wait), timeout=5.0)
@@ -586,20 +491,21 @@ class EnhancedAudioProcessor:
                         process.kill()
                         await asyncio.to_thread(process.wait)
                     
-                    logger.info(f"✅ Enhanced FFmpeg {mode} process cleaned up")
+                    logger.info(f"✅ FIXED FFmpeg {mode} process cleaned up")
                 except Exception as e:
-                    logger.error(f"Enhanced FFmpeg {mode} cleanup error: {e}")
+                    logger.error(f"FIXED FFmpeg {mode} cleanup error: {e}")
         
         self.transcribe_ffmpeg_process = None
         self.understand_ffmpeg_process = None
         
-        # Shutdown executor
-        self.executor.shutdown(wait=True, timeout=10)
+        # FIXED: Shutdown without timeout parameter
+        try:
+            self.executor.shutdown(wait=True)  # Removed timeout parameter
+        except Exception as e:
+            logger.error(f"FIXED executor shutdown error: {e}")
         
-        # Final cleanup
-        self.reset_enhanced()
-        
-        logger.info("✅ Enhanced audio processor fully cleaned up")
+        self.reset()
+        logger.info("✅ FIXED audio processor fully cleaned up")
 
 # Create alias for backwards compatibility
-AudioProcessor = EnhancedAudioProcessor
+AudioProcessor = FixedAudioProcessor
