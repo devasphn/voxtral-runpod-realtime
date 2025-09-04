@@ -1,24 +1,45 @@
-# FIXED STARTUP SCRIPT - PROPER PORT CLEANUP AND PROCESS MANAGEMENT
 #!/bin/bash
-# FIXED: Enhanced Voxtral Mini 3B Server Startup Script with Port Cleanup and Robust Shutdown
+# FIXED STARTUP SCRIPT - WITH PROPER PORT CLEANUP AND PROCESS MANAGEMENT
 
 set -e
 
-echo "🚀 Starting ENHANCED Voxtral Mini 3B Real-Time Server..."
-echo "=========================================================="
+echo "🚀 Starting FIXED Voxtral Mini 3B Real-Time Server..."
+echo "======================================================"
 
 # Get current working directory
 WORK_DIR=$(pwd)
 echo "Working Directory: $WORK_DIR"
 
-# FIXED: Kill any existing processes on required ports
+# FIXED: Alternative port cleanup without lsof dependency
 echo "🧹 Cleaning up existing processes..."
+
+# Kill processes by name/pattern (more reliable than lsof)
 pkill -f "uvicorn.*src.main:app" -SIGKILL 2>/dev/null || true
+pkill -f "uvicorn.*main:app" -SIGKILL 2>/dev/null || true
 pkill -f "ffmpeg.*webm" -SIGKILL 2>/dev/null || true
 
-# Kill processes using our ports
-lsof -ti:8000 | xargs kill -9 2>/dev/null || true
-lsof -ti:8005 | xargs kill -9 2>/dev/null || true
+# FIXED: Alternative port cleanup using netstat (if available)
+if command -v netstat >/dev/null 2>&1; then
+    # Find and kill processes using our ports
+    for port in 8000 8005; do
+        pid=$(netstat -tlnp 2>/dev/null | grep ":$port " | awk '{print $7}' | cut -d/ -f1)
+        if [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+            echo "Killed process $pid using port $port"
+        fi
+    done
+elif command -v ss >/dev/null 2>&1; then
+    # Use ss as alternative to netstat
+    for port in 8000 8005; do
+        pid=$(ss -tlnp 2>/dev/null | grep ":$port " | sed 's/.*pid=\([0-9]*\).*/\1/' | head -1)
+        if [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+            echo "Killed process $pid using port $port"
+        fi
+    done
+else
+    echo "⚠️ Neither lsof, netstat, nor ss available - skipping port cleanup"
+fi
 
 sleep 2
 echo "✅ Existing processes cleaned up"
@@ -31,7 +52,7 @@ export TRANSFORMERS_CACHE="$WORK_DIR/models"
 export TORCH_HOME="$WORK_DIR/models"
 
 # Enhanced system information
-echo "📊 Enhanced System Information:"
+echo "📊 FIXED System Information:"
 echo "- GPU Available: $(python -c 'import torch; print(torch.cuda.is_available())')"
 echo "- GPU Count: $(python -c 'import torch; print(torch.cuda.device_count() if torch.cuda.is_available() else 0)')"
 echo "- GPU Name: $(python -c 'import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")')"
@@ -39,7 +60,7 @@ echo "- Python: $(python --version)"
 echo "- PyTorch: $(python -c 'import torch; print(torch.__version__)')"
 echo "- Working Directory: $WORK_DIR"
 
-# Create necessary directories with enhanced structure
+# Create necessary directories
 mkdir -p "$WORK_DIR/logs" "$WORK_DIR/temp" "$WORK_DIR/models" "$WORK_DIR/conversations"
 echo "✅ Created directories: logs, temp, models, conversations"
 
@@ -47,54 +68,67 @@ echo "✅ Created directories: logs, temp, models, conversations"
 chmod 755 "$WORK_DIR/scripts"/*.sh
 echo "✅ Set script permissions"
 
-# Create cleanup script for proper shutdown
+# FIXED: Create improved cleanup script
 cat > "$WORK_DIR/cleanup.sh" << 'EOF'
 #!/bin/bash
-echo "🧹 Cleaning up enhanced server processes..."
+echo "🧹 Cleaning up FIXED server processes..."
 
-# Kill uvicorn processes gracefully
-pkill -f "uvicorn.*src.main:app" -SIGTERM 2>/dev/null || true
+# Kill uvicorn processes gracefully first
+pkill -f "uvicorn.*main:app" -SIGTERM 2>/dev/null || true
 
 # Wait for graceful shutdown
-sleep 5
+sleep 3
 
 # Force kill if still running
-pkill -f "uvicorn.*src.main:app" -SIGKILL 2>/dev/null || true
+pkill -f "uvicorn.*main:app" -SIGKILL 2>/dev/null || true
 
-# Kill any remaining FFmpeg processes
+# Kill FFmpeg processes
 pkill -f "ffmpeg.*webm" -SIGKILL 2>/dev/null || true
 
-# Kill processes using our ports
-lsof -ti:8000 | xargs kill -9 2>/dev/null || true
-lsof -ti:8005 | xargs kill -9 2>/dev/null || true
+# FIXED: Alternative port cleanup without lsof
+if command -v netstat >/dev/null 2>&1; then
+    for port in 8000 8005; do
+        pid=$(netstat -tlnp 2>/dev/null | grep ":$port " | awk '{print $7}' | cut -d/ -f1 2>/dev/null)
+        if [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done
+elif command -v ss >/dev/null 2>&1; then
+    for port in 8000 8005; do
+        pid=$(ss -tlnp 2>/dev/null | grep ":$port " | sed 's/.*pid=\([0-9]*\).*/\1/' | head -1)
+        if [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done
+fi
 
 # Clean up temp files
 rm -rf /tmp/tmp*.wav 2>/dev/null || true
 rm -f "$WORK_DIR/cleanup.sh" 2>/dev/null || true
 
-echo "✅ Enhanced cleanup completed"
+echo "✅ FIXED cleanup completed"
 EOF
 
 chmod +x "$WORK_DIR/cleanup.sh"
 
 # Create signal handler for proper cleanup
 cleanup_and_exit() {
-    echo "🛑 Received shutdown signal, performing enhanced cleanup..."
+    echo "🛑 Received shutdown signal, performing FIXED cleanup..."
     
     # Run cleanup script
     if [ -f "$WORK_DIR/cleanup.sh" ]; then
         "$WORK_DIR/cleanup.sh"
     fi
     
-    echo "✅ Enhanced server shutdown completed"
+    echo "✅ FIXED server shutdown completed"
     exit 0
 }
 
-# Register signal handlers for robust shutdown
+# Register signal handlers
 trap cleanup_and_exit SIGINT SIGTERM EXIT
 
-# FIXED: Enhanced health check endpoint - don't try to start if port busy
-echo "🔍 Starting enhanced health check server on port 8005..."
+# FIXED: Start health check server on port 8005
+echo "🔍 Starting FIXED health check server on port 8005..."
 python3 -c "
 import uvicorn
 import asyncio
@@ -114,13 +148,14 @@ async def health():
         'status': 'healthy',
         'timestamp': datetime.utcnow().isoformat(),
         'gpu_available': torch.cuda.is_available(),
-        'service': 'voxtral-realtime-enhanced',
+        'service': 'voxtral-realtime-fixed',
         'working_directory': '$WORK_DIR',
-        'enhancements': [
-            'Conversation Memory',
-            'Robust Shutdown', 
-            'Multilingual Support',
-            'Enhanced Speech Detection'
+        'fixes_applied': [
+            '✅ Fixed Language Codes',
+            '✅ Fixed ThreadPool Cleanup', 
+            '✅ Fixed WebSocket Handling',
+            '✅ Alternative Port Cleanup',
+            '✅ Enhanced Error Recovery'
         ]
     }
 
@@ -133,17 +168,19 @@ if __name__ == '__main__':
 " &
 
 HEALTH_PID=$!
-sleep 3
-echo "✅ Enhanced health check server started on port 8005 (PID: $HEALTH_PID)"
+sleep 2
+echo "✅ FIXED health check server started on port 8005 (PID: $HEALTH_PID)"
 
-# Enhanced server start with better error handling
-echo "🎤 Starting Enhanced Voxtral Real-Time Server on port 8000..."
-echo "Features: Conversation Memory | Robust Shutdown | Multilingual Support | Enhanced Detection"
+# Check if the fixed files exist and use them
+if [ -f "$WORK_DIR/src/fixed_main.py" ]; then
+    MAIN_MODULE="src.fixed_main:app"
+    echo "🎯 Using FIXED main module"
+else
+    MAIN_MODULE="src.main:app"
+    echo "⚠️ Using original main module (fixes may not be applied)"
+fi
 
-# Change to working directory
-cd "$WORK_DIR"
-
-# Function to check if server is still running
+# Function to check server health
 check_server() {
     if ! kill -0 $MAIN_PID 2>/dev/null; then
         echo "❌ Main server process died unexpectedly"
@@ -151,7 +188,14 @@ check_server() {
     fi
 }
 
-# FIXED: Start main server with enhanced configuration and proper error handling
+# FIXED: Start main server with enhanced configuration
+echo "🎤 Starting FIXED Voxtral Real-Time Server on port 8000..."
+echo "Features: Fixed Language Codes | Proper Error Handling | Alternative Port Management"
+
+# Change to working directory
+cd "$WORK_DIR"
+
+# FIXED: Start main server with proper module selection
 python3 -c "
 import sys
 import asyncio
@@ -163,12 +207,8 @@ sys.path.insert(0, '$WORK_DIR')
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import enhanced main
-from src.main import app
-import uvicorn
-
 def signal_handler(signum, frame):
-    logger.info(f'🛑 Received signal {signum}, shutting down enhanced server...')
+    logger.info(f'🛑 Received signal {signum}, shutting down FIXED server...')
     sys.exit(0)
 
 # Register signal handlers
@@ -176,9 +216,18 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 if __name__ == '__main__':
+    import uvicorn
     try:
+        # Try to use the fixed main first
+        try:
+            from src.fixed_main import app
+            logger.info('✅ Using FIXED main application')
+        except ImportError:
+            from src.main import app
+            logger.info('⚠️ Using original main application')
+        
         uvicorn.run(
-            'src.main:app',
+            app,
             host='0.0.0.0',
             port=8000,
             workers=1,
@@ -191,17 +240,25 @@ if __name__ == '__main__':
             timeout_keep_alive=65
         )
     except KeyboardInterrupt:
-        logger.info('🛑 Enhanced server stopped by user')
+        logger.info('🛑 FIXED server stopped by user')
     except Exception as e:
-        logger.error(f'❌ Enhanced server error: {e}')
+        logger.error(f'❌ FIXED server error: {e}')
         sys.exit(1)
 " &
 
 MAIN_PID=$!
-echo "🚀 Enhanced main server started (PID: $MAIN_PID)"
+echo "🚀 FIXED main server started (PID: $MAIN_PID)"
 
 # Monitor server health
+echo "👀 Monitoring server health..."
 while true; do
     sleep 10
     check_server
+    
+    # Optional: Check if health endpoint is responding
+    if command -v curl >/dev/null 2>&1; then
+        if ! curl -s http://localhost:8005/health >/dev/null 2>&1; then
+            echo "⚠️ Health check endpoint not responding"
+        fi
+    fi
 done
