@@ -26,3 +26,5 @@ pydub>=0.25.1
 mutagen>=1.47.0
 memory-profiler>=0.61.0
 line-profiler>=4.1.0
+pydantic-settings>=2.0.0
+accelerate
