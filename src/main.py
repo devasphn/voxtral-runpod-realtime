@@ -86,20 +86,21 @@ async def websocket_understand(websocket: WebSocket):
     conn_context = {
         "pcm_buffer": bytearray(), "last_speech_time": time.time(),
         "processing": False, "user_query": "Please respond naturally.",
-        "min_buffer_size": int(16000 * 2 * 0.25) # Min 0.25s of audio
+        "min_buffer_size": int(16000 * 2 * 0.25) # Min 0.25s of audio for meaningful transcription
     }
 
     async def process_audio_chunk(audio_chunk: bytes, reason: str):
-        if not audio_chunk: return
+        if len(audio_chunk) < conn_context["min_buffer_size"]: return
         logger.info(f"🧠 Processing {len(audio_chunk)} bytes of audio. Reason: {reason}.")
         
+        start_time = time.time()
         trans_result = await model_manager.transcribe_audio_pure(audio_chunk)
         if "error" in trans_result or not trans_result.get("text", "").strip():
             logger.warning(f"Skipping empty/failed transcription: {trans_result}")
             return
 
         text = trans_result["text"]
-        logger.info(f"🎤 Transcribed: '{text}'")
+        logger.info(f"🎤 Transcribed in {(time.time() - start_time)*1000:.0f}ms: '{text}'")
         
         context = conversation_manager.get_conversation_context(websocket)
         response = await model_manager.generate_understanding_response(
@@ -112,6 +113,7 @@ async def websocket_understand(websocket: WebSocket):
             )
             try:
                 await websocket.send_json(response)
+                logger.info(f"🚀 LLM response sent in {(time.time() - start_time)*1000:.0f}ms (end-to-end)")
             except WebSocketDisconnect:
                 logger.warning("Client disconnected during message send.")
 
@@ -128,7 +130,7 @@ async def websocket_understand(websocket: WebSocket):
                 try:
                     await process_audio_chunk(bytes(audio_to_process), reason=f"Gap ({silence_ms:.0f}ms)")
                 finally:
-                    conn_context["processing"] = False
+                    conn_context["processing"] = False # CRITICAL: Always reset the flag
 
     gap_task = asyncio.create_task(gap_detection_task())
 
