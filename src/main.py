@@ -13,7 +13,6 @@ from config.settings import Settings
 from config.logging_config import setup_logging
 from src.websocket_handler import WebSocketManager
 from src.model_loader import VoxtralModelManager
-from src.audio_processor import AudioProcessor
 from src.utils import get_system_info
 
 # Initialize logging
@@ -23,15 +22,9 @@ logger = logging.getLogger(__name__)
 # Global settings
 settings = Settings()
 
-# Global model manager and audio processor
+# Global model manager
 model_manager = None
 ws_manager = WebSocketManager()
-audio_processor = AudioProcessor(
-    sample_rate=16000,
-    channels=1,
-    chunk_duration_ms=30,
-    vad_mode=3
-)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -63,9 +56,9 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="Voxtral Mini 3B - PERFECT Real-Time API",
+    title="Voxtral Mini 3B - FIXED Real-Time API",
     description="TRANSCRIPTION = ASR | UNDERSTANDING = ASR + LLM",
-    version="1.2.0",
+    version="1.3.0",
     lifespan=lifespan
 )
 
@@ -92,7 +85,6 @@ async def health_check():
             "active_connections": ws_manager.connection_count,
             "transcription_mode": "ASR only - Speech to Text",
             "understanding_mode": "ASR + LLM - Speech to Intelligent Response",
-            "vad_enabled": True,
             "system": system_info,
             "timestamp": asyncio.get_event_loop().time()
         }
@@ -112,11 +104,9 @@ async def model_info():
         "device": str(settings.DEVICE),
         "dtype": str(settings.TORCH_DTYPE),
         "context_length": "32K tokens",
-        "vad_enabled": True,
-        "vad_mode": 3,
         "transcription_mode": "ASR only - converts speech to text",
-        "understanding_mode": "ASR + LLM - speech to intelligent response (no text needed!)",
-        "audio_processing": "WebM/Opus -> 16kHz WAV",
+        "understanding_mode": "ASR + LLM - speech to intelligent response",
+        "audio_processing": "Direct WebM processing",
         "supported_languages": [
             "English", "Spanish", "French", "Portuguese", 
             "Hindi", "German", "Dutch", "Italian"
@@ -124,7 +114,6 @@ async def model_info():
         "capabilities": [
             "✅ Pure ASR transcription",
             "✅ Audio understanding (speak -> get intelligent reply)",
-            "✅ Real-time Voice Activity Detection",
             "✅ WebM/Opus browser audio support",
             "✅ Multi-language support"
         ]
@@ -139,28 +128,22 @@ async def websocket_transcribe(websocket: WebSocket):
             # Receive WebM/Opus audio from browser
             data = await websocket.receive_bytes()
             
-            # VAD processing
-            vad_result = audio_processor.process_chunk(data)
+            logger.info(f"🎤 Received audio chunk: {len(data)} bytes")
             
-            if vad_result and "audio_data" in vad_result:
-                speech_ratio = vad_result.get("speech_ratio", 0)
-                if speech_ratio > 0.2:  # Speech detected
-                    logger.info(f"🎤 TRANSCRIBING (speech ratio: {speech_ratio:.2f})")
+            if model_manager and model_manager.is_loaded:
+                # Use TRANSCRIPTION mode - ASR only
+                result = await model_manager.transcribe_audio(data)
+                
+                # Send transcription if meaningful
+                if (result.get("text") and 
+                    result["text"].strip() and 
+                    not any(phrase in result["text"].lower() for phrase in 
+                           ["i'm sorry", "could not", "didn't catch"])):
                     
-                    if model_manager and model_manager.is_loaded:
-                        # Use TRANSCRIPTION mode - ASR only
-                        result = await model_manager.transcribe_audio(vad_result["audio_data"])
-                        
-                        # Send transcription if meaningful
-                        if (result.get("text") and 
-                            result["text"].strip() and 
-                            not any(phrase in result["text"].lower() for phrase in 
-                                   ["i'm sorry", "could not", "didn't catch"])):
-                            
-                            await websocket.send_json(result)
-                            logger.info(f"✅ TRANSCRIBED: '{result['text'][:50]}...'")
-                    else:
-                        await websocket.send_json({"error": "Model not loaded"})
+                    await websocket.send_json(result)
+                    logger.info(f"✅ TRANSCRIBED: '{result['text'][:50]}...'")
+            else:
+                await websocket.send_json({"error": "Model not loaded"})
                         
     except WebSocketDisconnect:
         logger.info("Transcription WebSocket disconnected")
@@ -178,55 +161,17 @@ async def websocket_understand(websocket: WebSocket):
     """UNDERSTANDING MODE: Speech -> Intelligent Response (ASR + LLM)"""
     await ws_manager.connect(websocket, "understand")
     
-    # Audio buffer for understanding mode
-    audio_buffer = []
-    
     try:
         while True:
             # Receive message
             message = await websocket.receive_json()
             
-            # Handle different message types
-            if message.get("type") == "audio_chunk":
-                # Store audio chunks
-                audio_data = message.get("audio")
-                if audio_data:
-                    audio_buffer.append(audio_data)
-                
-            elif message.get("type") == "process":
-                # Process accumulated audio for understanding
-                if audio_buffer:
-                    # Combine all audio chunks
-                    combined_audio = "".join(audio_buffer)
-                    
-                    # UNDERSTANDING MODE: Just audio, no text needed!
-                    understanding_message = {
-                        "audio": combined_audio
-                        # No text field needed - the model will understand and respond intelligently!
-                    }
-                    
-                    if model_manager and model_manager.is_loaded:
-                        logger.info(f"🧠 UNDERSTANDING audio (ASR + LLM processing)...")
-                        result = await model_manager.understand_audio(understanding_message)
-                        await websocket.send_json(result)
-                        
-                        if not result.get("error"):
-                            logger.info(f"✅ INTELLIGENT RESPONSE: '{result.get('response', '')[:50]}...'")
-                    else:
-                        await websocket.send_json({"error": "Model not loaded"})
-                    
-                    # Clear buffer
-                    audio_buffer.clear()
-                else:
-                    await websocket.send_json({"error": "No audio data to process"})
-            
+            # Handle direct audio + text format
+            if model_manager and model_manager.is_loaded:
+                result = await model_manager.understand_audio(message)
+                await websocket.send_json(result)
             else:
-                # Handle direct audio + text (legacy format)
-                if model_manager and model_manager.is_loaded:
-                    result = await model_manager.understand_audio(message)
-                    await websocket.send_json(result)
-                else:
-                    await websocket.send_json({"error": "Model not loaded"})
+                await websocket.send_json({"error": "Model not loaded"})
                 
     except WebSocketDisconnect:
         logger.info("Understanding WebSocket disconnected")
@@ -245,15 +190,8 @@ async def get_connections():
     return {
         "total_connections": ws_manager.connection_count,
         "connections_by_type": ws_manager.get_connections_by_type(),
-        "max_connections": settings.MAX_CONCURRENT_CONNECTIONS,
-        "vad_stats": audio_processor.get_stats()
+        "max_connections": settings.MAX_CONCURRENT_CONNECTIONS
     }
-
-@app.post("/vad/reset")
-async def reset_vad():
-    """Reset VAD processor"""
-    audio_processor.reset()
-    return {"status": "VAD reset successfully"}
 
 if __name__ == "__main__":
     uvicorn.run(
