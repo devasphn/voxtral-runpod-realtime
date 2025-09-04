@@ -1,4 +1,4 @@
-# PERFECT UNIFIED AUDIO PROCESSOR - FIXES ALL ISSUES
+# FIXED AUDIO PROCESSOR - UNIFIED APPROACH FOR BOTH MODES
 import asyncio
 import logging
 import numpy as np
@@ -15,8 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
-class UnifiedAudioProcessor:
-    """PERFECT: Unified WebM audio processing using FFmpeg streaming for BOTH modes"""
+class AudioProcessor:
+    """UNIFIED: WebM audio processing using FFmpeg streaming for BOTH modes"""
     
     def __init__(
         self,
