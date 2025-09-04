@@ -1,4 +1,4 @@
-# FIXED MODEL LOADER - UNIFIED APPROACH FOR BOTH MODES  
+# FIXED MODEL LOADER - WITH BETTER ERROR HANDLING AND DEBUGGING
 import asyncio
 import logging
 import torch
@@ -15,7 +15,7 @@ from transformers import VoxtralForConditionalGeneration, AutoProcessor
 logger = logging.getLogger(__name__)
 
 class VoxtralModelManager:
-    """FIXED: Unified Voxtral model manager with robust audio processing"""
+    """FIXED: Unified Voxtral model manager with improved audio processing"""
     
     def __init__(
         self, 
@@ -81,21 +81,28 @@ class VoxtralModelManager:
             raise RuntimeError(f"Model loading failed: {e}")
     
     async def transcribe_audio(self, audio_data: bytes) -> Dict[str, Any]:
-        """TRANSCRIPTION MODE: Audio -> Text (ASR only) with robust error handling"""
+        """TRANSCRIPTION MODE: Audio -> Text (ASR only) with improved error handling"""
         if not self.is_loaded:
+            logger.error("Model not loaded for transcription")
             return {"error": "Model not loaded"}
         
         temp_path = None
         try:
             # Validate input
             if not audio_data or len(audio_data) < 100:
+                logger.warning(f"Invalid audio data: {len(audio_data) if audio_data else 0} bytes")
                 return {"error": "Invalid or insufficient audio data"}
+            
+            logger.info(f"Processing transcription for {len(audio_data)} bytes of audio data")
             
             # Create temporary WAV file from audio data
             temp_path = self._audio_bytes_to_wav_file(audio_data)
             
             if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 100:
+                logger.error(f"Failed to create valid WAV file: {temp_path}")
                 return {"error": "Failed to create valid audio file"}
+            
+            logger.info(f"Created WAV file: {temp_path} ({os.path.getsize(temp_path)} bytes)")
             
             # Use transcription request for pure ASR
             inputs = self.processor.apply_transcription_request(
@@ -107,6 +114,8 @@ class VoxtralModelManager:
             
             # Move to device
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            logger.info("Running model inference for transcription...")
             
             # Generate transcription
             with torch.no_grad():
@@ -131,11 +140,21 @@ class VoxtralModelManager:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
             
-            # Validate transcription
-            if not transcription or len(transcription) < 2:
-                return {"error": "No meaningful transcription generated"}
+            logger.info(f"Raw transcription result: '{transcription}'")
             
-            logger.info(f"✅ Transcription: '{transcription[:100]}...'")
+            # Return even empty transcriptions for debugging
+            if not transcription:
+                logger.warning("Empty transcription generated")
+                return {
+                    "type": "transcription",
+                    "text": "",
+                    "language": "en",
+                    "confidence": 0.0,
+                    "timestamp": asyncio.get_event_loop().time(),
+                    "debug": "empty_transcription"
+                }
+            
+            logger.info(f"✅ Transcription successful: '{transcription}'")
             
             return {
                 "type": "transcription",
@@ -146,7 +165,7 @@ class VoxtralModelManager:
             }
             
         except Exception as e:
-            logger.error(f"Transcription error: {e}")
+            logger.error(f"Transcription error: {e}", exc_info=True)
             if temp_path and os.path.exists(temp_path):
                 try:
                     os.unlink(temp_path)
@@ -155,21 +174,28 @@ class VoxtralModelManager:
             return {"error": f"Transcription failed: {str(e)}"}
     
     async def understand_audio(self, audio_data: bytes, query: str = None) -> Dict[str, Any]:
-        """UNDERSTANDING MODE: Audio -> Intelligent Response (ASR + LLM) with robust handling"""
+        """UNDERSTANDING MODE: Audio -> Intelligent Response (ASR + LLM) with improved handling"""
         if not self.is_loaded:
+            logger.error("Model not loaded for understanding")
             return {"error": "Model not loaded"}
         
         temp_path = None
         try:
             # Validate input
             if not audio_data or len(audio_data) < 100:
+                logger.warning(f"Invalid audio data: {len(audio_data) if audio_data else 0} bytes")
                 return {"error": "Invalid or insufficient audio data"}
+            
+            logger.info(f"Processing understanding for {len(audio_data)} bytes of audio data")
             
             # Create temporary WAV file from audio data
             temp_path = self._audio_bytes_to_wav_file(audio_data)
             
             if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 100:
+                logger.error(f"Failed to create valid WAV file: {temp_path}")
                 return {"error": "Failed to create valid audio file"}
+            
+            logger.info(f"Created WAV file: {temp_path} ({os.path.getsize(temp_path)} bytes)")
             
             # UNDERSTANDING MODE: Audio conversation for intelligent response
             conversation = [
@@ -192,6 +218,8 @@ class VoxtralModelManager:
             
             # Move to device
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            logger.info("Running model inference for understanding...")
             
             # Generate intelligent response (ASR + LLM)
             with torch.no_grad():
@@ -217,11 +245,20 @@ class VoxtralModelManager:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
             
-            # Validate response
-            if not response or len(response) < 2:
-                return {"error": "No meaningful response generated"}
+            logger.info(f"Raw understanding result: '{response}'")
             
-            logger.info(f"✅ Understanding: '{response[:100]}...'")
+            # Return even empty responses for debugging
+            if not response:
+                logger.warning("Empty understanding response generated")
+                return {
+                    "type": "understanding",
+                    "response": "I couldn't understand the audio clearly.",
+                    "query": query or "Audio understanding",
+                    "timestamp": asyncio.get_event_loop().time(),
+                    "debug": "empty_response"
+                }
+            
+            logger.info(f"✅ Understanding successful: '{response}'")
             
             return {
                 "type": "understanding",
@@ -231,7 +268,7 @@ class VoxtralModelManager:
             }
             
         except Exception as e:
-            logger.error(f"Understanding error: {e}")
+            logger.error(f"Understanding error: {e}", exc_info=True)
             if temp_path and os.path.exists(temp_path):
                 try:
                     os.unlink(temp_path)
@@ -240,7 +277,7 @@ class VoxtralModelManager:
             return {"error": f"Understanding failed: {str(e)}"}
     
     def _audio_bytes_to_wav_file(self, audio_bytes: bytes) -> str:
-        """Convert audio bytes to WAV file with robust error handling"""
+        """Convert audio bytes to WAV file with improved error handling"""
         try:
             temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
             os.close(temp_fd)
@@ -258,11 +295,12 @@ class VoxtralModelManager:
                 audio_bytes = audio_bytes[:-1]
             
             if len(audio_bytes) < 32:  # Too small
-                raise ValueError("Audio data too small")
+                raise ValueError(f"Audio data too small: {len(audio_bytes)} bytes")
             
             # Convert to numpy array
             try:
                 audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+                logger.info(f"Converted {len(audio_bytes)} bytes to {len(audio_array)} samples")
             except Exception as e:
                 logger.error(f"Failed to convert audio bytes to array: {e}")
                 raise
@@ -274,7 +312,7 @@ class VoxtralModelManager:
                 wav_file.setframerate(16000)  # 16kHz
                 wav_file.writeframes(audio_array.tobytes())
             
-            logger.info(f"✅ Created WAV file: {len(audio_bytes)} bytes -> {temp_path}")
+            logger.info(f"✅ Created WAV file: {len(audio_bytes)} bytes -> {temp_path} ({os.path.getsize(temp_path)} bytes)")
             return temp_path
             
         except Exception as e:
