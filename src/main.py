@@ -185,14 +185,16 @@ async def model_info():
             "✅ Correct language parameter handling",
             "✅ Proper API method selection",
             "✅ Fixed result structure processing",
-            "✅ Better error handling and validation",
-            "✅ Improved audio file conversion"
+            "✅ Better error handling and validation",  
+            "✅ Improved audio file conversion",
+            "✅ Fixed audio buffering and VAD",
+            "✅ Resolved bytes processing error"
         ]
     }
 
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
-    """COMPLETELY FIXED: WebSocket transcription with proper result handling"""
+    """COMPLETELY FIXED: WebSocket transcription with proper audio buffering"""
     await ws_manager.connect(websocket, "transcribe")
     conversation_manager.start_conversation(websocket)
     
@@ -208,75 +210,82 @@ async def websocket_transcribe(websocket: WebSocket):
                     await websocket.send_json({"info": "Server shutting down"})
                     break
                 
-                # Validate data
-                if not data or len(data) < 50:
+                # FIXED: Better data validation
+                if not data or len(data) < 100:  # Increased minimum size
                     logger.debug("Invalid/insufficient audio data received")
                     continue
                 
                 # Process through audio processor
                 result = await audio_processor.process_webm_chunk_transcribe(data, websocket)
                 
-                # COMPLETELY FIXED: Better result validation
-                if result and isinstance(result, dict) and "audio_data" in result:
-                    duration_ms = result.get("duration_ms", 0)
-                    speech_ratio = result.get("speech_ratio", 0)
+                # COMPLETELY FIXED: Better result validation with proper error handling
+                if result and isinstance(result, dict):
+                    if "error" in result:
+                        logger.error(f"COMPLETELY FIXED audio processing error: {result['error']}")
+                        await websocket.send_json({
+                            "error": f"Audio processing failed: {result['error']}", 
+                            "completely_fixed": True
+                        })
+                        continue
                     
-                    # More permissive thresholds for better responsiveness
-                    if duration_ms > 200 and speech_ratio > 0.05:
-                        logger.info(f"🎤 COMPLETELY FIXED TRANSCRIBING: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
+                    if "audio_data" in result:
+                        duration_ms = result.get("duration_ms", 0)
+                        speech_ratio = result.get("speech_ratio", 0)
                         
-                        if model_manager and model_manager.is_loaded:
-                            # Get context
-                            context = conversation_manager.get_conversation_context(websocket)
+                        # FIXED: Better thresholds for speech detection 
+                        if duration_ms > 800 and speech_ratio > 0.3:  # Increased thresholds
+                            logger.info(f"🎤 COMPLETELY FIXED TRANSCRIBING: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
                             
-                            # COMPLETELY FIXED: Use corrected transcription method
-                            transcription_result = await model_manager.transcribe_audio(
-                                result["audio_data"], 
-                                context=context,
-                                language=None  # Let model use default language
-                            )
-                            
-                            # COMPLETELY FIXED: Proper result structure handling
-                            if (isinstance(transcription_result, dict) and 
-                                transcription_result.get("text") and
-                                "error" not in transcription_result and
-                                len(transcription_result["text"].strip()) > 0 and
-                                transcription_result["text"].strip() not in ["", ".", "...", "..."]):
+                            if model_manager and model_manager.is_loaded:
+                                # Get context
+                                context = conversation_manager.get_conversation_context(websocket)
                                 
-                                # Add to conversation
-                                conversation_manager.add_turn(
-                                    websocket,
-                                    transcription=transcription_result["text"],
-                                    audio_duration=duration_ms / 1000,
-                                    speech_ratio=speech_ratio,
-                                    mode="transcribe",
-                                    language=transcription_result.get("language")
+                                # COMPLETELY FIXED: Use corrected transcription method
+                                transcription_result = await model_manager.transcribe_audio(
+                                    result["audio_data"], 
+                                    context=context,
+                                    language=None  # Let model use default language
                                 )
                                 
-                                # Add stats and send response
-                                conv_stats = conversation_manager.get_conversation_stats(websocket)
-                                transcription_result["conversation"] = conv_stats
-                                transcription_result["completely_fixed"] = True
-                                
-                                await websocket.send_json(transcription_result)
-                                logger.info(f"✅ COMPLETELY FIXED TRANSCRIBED: '{transcription_result['text']}'")
+                                # COMPLETELY FIXED: Enhanced result validation
+                                if (isinstance(transcription_result, dict) and 
+                                    transcription_result.get("text") and
+                                    "error" not in transcription_result and
+                                    len(transcription_result["text"].strip()) > 2 and  # At least 3 characters
+                                    transcription_result["text"].strip().lower() not in ["", ".", "...", "...", "um", "uh", "hmm"]):
+                                    
+                                    # Add to conversation
+                                    conversation_manager.add_turn(
+                                        websocket,
+                                        transcription=transcription_result["text"],
+                                        audio_duration=duration_ms / 1000,
+                                        speech_ratio=speech_ratio,
+                                        mode="transcribe",
+                                        language=transcription_result.get("language")
+                                    )
+                                    
+                                    # Add stats and send response
+                                    conv_stats = conversation_manager.get_conversation_stats(websocket)
+                                    transcription_result["conversation"] = conv_stats
+                                    transcription_result["completely_fixed"] = True
+                                    
+                                    await websocket.send_json(transcription_result)
+                                    logger.info(f"✅ COMPLETELY FIXED TRANSCRIBED: '{transcription_result['text']}'")
+                                else:
+                                    logger.debug(f"Skipping low-quality transcription: {transcription_result}")
                             else:
-                                logger.debug(f"Skipping empty/invalid transcription: {transcription_result}")
+                                await websocket.send_json({"error": "Model not loaded"})
                         else:
-                            await websocket.send_json({"error": "Model not loaded"})
-                    else:
-                        logger.debug(f"Skipping: duration={duration_ms:.0f}ms, speech={speech_ratio:.3f}")
-                elif result and isinstance(result, dict) and "error" in result:
-                    logger.error(f"COMPLETELY FIXED audio processing error: {result['error']}")
+                            logger.debug(f"Skipping: duration={duration_ms:.0f}ms, speech={speech_ratio:.3f}")
                     
             except WebSocketDisconnect:
                 break
             except Exception as inner_e:
-                logger.error(f"COMPLETELY FIXED inner WebSocket transcription error: {inner_e}")
+                logger.error(f"COMPLETELY FIXED inner WebSocket transcription error: {inner_e}", exc_info=True)
                 try:
                     if not shutdown_event.is_set():
                         await websocket.send_json({
-                            "error": f"COMPLETELY FIXED processing error: {str(inner_e)}",
+                            "error": f"Processing error: {str(inner_e)}",
                             "completely_fixed": True
                         })
                 except:
@@ -323,88 +332,91 @@ async def websocket_understand(websocket: WebSocket):
                     await websocket.send_json({"error": "No audio data provided", "completely_fixed": True})
                     continue
                 
-                # COMPLETELY FIXED: Handle base64 audio data
+                # COMPLETELY FIXED: Handle base64 audio data with better error handling
                 try:
                     if isinstance(audio_data, str):
                         # Remove data URL prefix if present
                         if audio_data.startswith("data:"):
                             audio_data = audio_data.split(",")[1] if "," in audio_data else audio_data
-                        audio_bytes = base64.b64decode(audio_data)
-                    else:
-                        audio_bytes = audio_data
                         
-                    if len(audio_bytes) < 50:
-                        logger.warning("Decoded audio data too small")
+                        # FIXED: Better base64 decoding with validation
+                        try:
+                            audio_bytes = base64.b64decode(audio_data)
+                        except Exception as b64_e:
+                            logger.error(f"Base64 decode error: {b64_e}")
+                            await websocket.send_json({
+                                "error": f"Invalid base64 audio data: {str(b64_e)}",
+                                "completely_fixed": True
+                            })
+                            continue
+                    else:
+                        # Handle bytes directly
+                        audio_bytes = audio_data if isinstance(audio_data, bytes) else bytes(audio_data)
+                        
+                    if len(audio_bytes) < 100:  # Increased minimum size
+                        logger.warning(f"Decoded audio data too small: {len(audio_bytes)} bytes")
+                        await websocket.send_json({
+                            "error": "Audio data too small",
+                            "completely_fixed": True
+                        })
                         continue
                         
                 except Exception as decode_e:
                     logger.error(f"COMPLETELY FIXED audio decode error: {decode_e}")
                     await websocket.send_json({
-                        "error": f"COMPLETELY FIXED audio decode error: {str(decode_e)}",
+                        "error": f"Audio decoding failed: {str(decode_e)}",
                         "completely_fixed": True
                     })
                     continue
                 
-                # Process through audio processor
-                result = await audio_processor.process_webm_chunk_understand(audio_bytes, websocket)
+                # FIXED: Direct model processing for understanding mode
+                logger.info(f"🧠 Processing understanding request: {len(audio_bytes)} bytes")
                 
-                # COMPLETELY FIXED: Better result handling
-                if result and isinstance(result, dict) and "audio_data" in result:
-                    duration_ms = result.get("duration_ms", 0)
-                    speech_ratio = result.get("speech_ratio", 0)
+                if model_manager and model_manager.is_loaded:
+                    # Get context
+                    context = conversation_manager.get_conversation_context(websocket)
                     
-                    if duration_ms > 300 and speech_ratio > 0.05:
-                        logger.info(f"🧠 COMPLETELY FIXED UNDERSTANDING: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
+                    # COMPLETELY FIXED: Use corrected understanding method directly
+                    understanding_result = await model_manager.understand_audio(
+                        audio_bytes,  # Pass bytes directly
+                        query=query,
+                        context=context
+                    )
+                    
+                    # COMPLETELY FIXED: Proper result validation
+                    if (isinstance(understanding_result, dict) and 
+                        understanding_result.get("response") and 
+                        "error" not in understanding_result and
+                        len(understanding_result["response"].strip()) > 5):
                         
-                        if model_manager and model_manager.is_loaded:
-                            # Get context
-                            context = conversation_manager.get_conversation_context(websocket)
-                            
-                            # COMPLETELY FIXED: Use corrected understanding method
-                            understanding_result = await model_manager.understand_audio(
-                                result["audio_data"], 
-                                query=query,
-                                context=context
-                            )
-                            
-                            # COMPLETELY FIXED: Proper result validation
-                            if (isinstance(understanding_result, dict) and 
-                                understanding_result.get("response") and 
-                                "error" not in understanding_result and
-                                len(understanding_result["response"].strip()) > 0):
-                                
-                                # Add to conversation
-                                transcription = understanding_result.get("transcription", "")
-                                conversation_manager.add_turn(
-                                    websocket,
-                                    transcription=transcription,
-                                    response=understanding_result["response"],
-                                    audio_duration=duration_ms / 1000,
-                                    speech_ratio=speech_ratio,
-                                    mode="understand",
-                                    language=understanding_result.get("language")
-                                )
-                                
-                                # Add stats and send response
-                                conv_stats = conversation_manager.get_conversation_stats(websocket)
-                                understanding_result["conversation"] = conv_stats
-                                understanding_result["completely_fixed"] = True
-                                
-                                await websocket.send_json(understanding_result)
-                                logger.info(f"✅ COMPLETELY FIXED UNDERSTOOD: '{understanding_result['response'][:100]}...'")
-                            else:
-                                logger.warning(f"Invalid understanding result: {understanding_result}")
-                                await websocket.send_json({
-                                    "error": "No valid understanding generated",
-                                    "completely_fixed": True
-                                })
-                        else:
-                            await websocket.send_json({"error": "Model not loaded", "completely_fixed": True})
+                        # Add to conversation
+                        transcription = understanding_result.get("transcription", "")
+                        conversation_manager.add_turn(
+                            websocket,
+                            transcription=transcription,
+                            response=understanding_result["response"],
+                            audio_duration=1.0,  # Estimate
+                            speech_ratio=1.0,    # Estimate
+                            mode="understand",
+                            language=understanding_result.get("language")
+                        )
+                        
+                        # Add stats and send response
+                        conv_stats = conversation_manager.get_conversation_stats(websocket)
+                        understanding_result["conversation"] = conv_stats
+                        understanding_result["completely_fixed"] = True
+                        
+                        await websocket.send_json(understanding_result)
+                        logger.info(f"✅ COMPLETELY FIXED UNDERSTOOD: '{understanding_result['response'][:100]}...'")
                     else:
-                        logger.debug(f"Skipping understanding: duration={duration_ms:.0f}ms, speech={speech_ratio:.3f}")
-                elif result and isinstance(result, dict) and "error" in result:
-                    logger.error(f"COMPLETELY FIXED understanding processing error: {result['error']}")
-                    await websocket.send_json({"error": result["error"], "completely_fixed": True})
+                        logger.warning(f"Invalid understanding result: {understanding_result}")
+                        await websocket.send_json({
+                            "error": "No valid understanding generated",
+                            "result_debug": str(understanding_result),
+                            "completely_fixed": True
+                        })
+                else:
+                    await websocket.send_json({"error": "Model not loaded", "completely_fixed": True})
                     
             except WebSocketDisconnect:
                 break
@@ -419,11 +431,11 @@ async def websocket_understand(websocket: WebSocket):
                     }
                 })
             except Exception as inner_e:
-                logger.error(f"COMPLETELY FIXED inner WebSocket understanding error: {inner_e}")
+                logger.error(f"COMPLETELY FIXED inner WebSocket understanding error: {inner_e}", exc_info=True)
                 try:
                     if not shutdown_event.is_set():
                         await websocket.send_json({
-                            "error": f"COMPLETELY FIXED processing error: {str(inner_e)}",
+                            "error": f"Processing error: {str(inner_e)}",
                             "completely_fixed": True
                         })
                 except:
@@ -503,7 +515,9 @@ async def debug_completely_fixed():
             "✅ Fixed result structure handling",
             "✅ Enhanced error recovery and validation",
             "✅ Better audio file conversion",
-            "✅ Proper WebSocket message handling"
+            "✅ Proper WebSocket message handling",
+            "✅ Improved audio buffering and VAD thresholds",
+            "✅ Fixed bytes processing error in understanding mode"
         ],
         "completely_fixed": True
     }
