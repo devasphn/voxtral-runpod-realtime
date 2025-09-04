@@ -13,7 +13,7 @@ from config.settings import Settings
 from config.logging_config import setup_logging
 from src.websocket_handler import WebSocketManager
 from src.model_loader import VoxtralModelManager
-from src.audio_processor import AudioProcessor  # Import VAD processor
+from src.audio_processor import AudioProcessor
 from src.utils import get_system_info
 
 # Initialize logging
@@ -30,7 +30,7 @@ audio_processor = AudioProcessor(
     sample_rate=16000,
     channels=1,
     chunk_duration_ms=30,
-    vad_mode=3  # Aggressive VAD
+    vad_mode=3
 )
 
 @asynccontextmanager
@@ -39,8 +39,7 @@ async def lifespan(app: FastAPI):
     global model_manager
     
     # Startup
-    logger.info("🚀 Starting Voxtral Real-Time Server with VAD...")
-    logger.info(f"Settings: {settings.dict()}")
+    logger.info("🚀 Starting Voxtral Real-Time Server with FIXED audio processing...")
     
     # Initialize model
     try:
@@ -50,7 +49,7 @@ async def lifespan(app: FastAPI):
             torch_dtype=settings.TORCH_DTYPE
         )
         await model_manager.load_model()
-        logger.info("✅ Model loaded successfully")
+        logger.info("✅ Model loaded successfully with mistral_common integration")
     except Exception as e:
         logger.error(f"❌ Failed to load model: {e}")
         raise RuntimeError(f"Model loading failed: {e}")
@@ -64,9 +63,9 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="Voxtral Mini 3B Real-Time API with VAD",
-    description="Real-time audio processing with Voice Activity Detection",
-    version="1.0.0",
+    title="Voxtral Mini 3B - FIXED Real-Time API",
+    description="Fixed real-time audio processing with proper Voxtral integration",
+    version="1.1.0",
     lifespan=lifespan
 )
 
@@ -92,6 +91,7 @@ async def health_check():
             "model_status": model_status,
             "active_connections": ws_manager.connection_count,
             "vad_enabled": True,
+            "mistral_common_integration": True,
             "system": system_info,
             "timestamp": asyncio.get_event_loop().time()
         }
@@ -107,50 +107,60 @@ async def model_info():
     
     return {
         "model_name": settings.MODEL_NAME,
-        "model_size": "3B parameters",
+        "model_size": "3B parameters", 
         "device": str(settings.DEVICE),
         "dtype": str(settings.TORCH_DTYPE),
         "context_length": "32K tokens",
         "vad_enabled": True,
-        "vad_mode": 3,  # FIXED: Direct value instead of accessing vad object
+        "vad_mode": 3,
+        "audio_format": "WebM/Opus -> WAV conversion",
+        "mistral_common": "1.8.1+",
         "supported_languages": [
             "English", "Spanish", "French", "Portuguese", 
             "Hindi", "German", "Dutch", "Italian"
         ],
         "capabilities": [
-            "Speech transcription with VAD",
-            "Audio understanding with VAD", 
+            "Real-time speech transcription",
+            "Audio understanding with Q&A", 
             "Voice Activity Detection",
-            "Real-time processing"
+            "WebM/Opus audio processing",
+            "Multi-language support"
         ]
     }
 
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
-    """WebSocket endpoint for real-time transcription with VAD"""
+    """FIXED: WebSocket endpoint for real-time transcription"""
     await ws_manager.connect(websocket, "transcribe")
     try:
         while True:
-            # Receive audio data
+            # Receive audio data from browser (WebM/Opus format)
             data = await websocket.receive_bytes()
             
-            # Process with VAD first
-            vad_result = audio_processor.process_chunk(data)
-            
-            if vad_result and "audio_data" in vad_result:
-                # Only process if speech is detected
-                logger.info(f"🎤 Speech detected, processing {len(vad_result['audio_data'])} bytes")
+            # IMPROVED: Better VAD processing for WebM audio
+            try:
+                vad_result = audio_processor.process_chunk(data)
                 
-                if model_manager and model_manager.is_loaded:
-                    result = await model_manager.transcribe_audio(vad_result["audio_data"])
+                if vad_result and "audio_data" in vad_result and vad_result.get("speech_ratio", 0) > 0.3:
+                    # Only process if significant speech detected
+                    logger.info(f"🎤 Speech detected (ratio: {vad_result.get('speech_ratio', 0):.2f}), processing...")
                     
-                    # Only send if we got actual transcription text
-                    if result.get("text") and result["text"].strip():
-                        await websocket.send_json(result)
-                        logger.info(f"✅ Sent transcription: {result['text'][:50]}...")
-                else:
-                    await websocket.send_json({"error": "Model not loaded"})
-            # Note: No response sent for silence/non-speech
+                    if model_manager and model_manager.is_loaded:
+                        # Use the fixed model with proper WebM -> WAV conversion
+                        result = await model_manager.transcribe_audio(vad_result["audio_data"])
+                        
+                        # Send result if transcription is meaningful
+                        if result.get("text") and result["text"].strip() and not result["text"].startswith("I'm sorry"):
+                            await websocket.send_json(result)
+                            logger.info(f"✅ Real transcription: {result['text'][:50]}...")
+                        else:
+                            logger.info("⚠️ Generic response, audio quality may be low")
+                    else:
+                        await websocket.send_json({"error": "Model not loaded"})
+                        
+            except Exception as e:
+                logger.error(f"Audio processing error: {e}")
+                # Continue processing, don't break connection
                 
     except WebSocketDisconnect:
         logger.info("Transcription WebSocket disconnected")
@@ -165,17 +175,20 @@ async def websocket_transcribe(websocket: WebSocket):
 
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
-    """WebSocket endpoint for real-time audio understanding with VAD"""
+    """FIXED: WebSocket endpoint for audio understanding"""
     await ws_manager.connect(websocket, "understand")
     try:
         while True:
-            # Receive message (JSON for understanding)
+            # Receive JSON message with audio and question
             message = await websocket.receive_json()
             
-            # Process with model
             if model_manager and model_manager.is_loaded:
+                # Use the fixed model with proper audio understanding
                 result = await model_manager.understand_audio(message)
                 await websocket.send_json(result)
+                
+                if not result.get("error"):
+                    logger.info(f"✅ Understanding response: {result.get('response', '')[:50]}...")
             else:
                 await websocket.send_json({"error": "Model not loaded"})
                 
@@ -205,6 +218,37 @@ async def reset_vad():
     """Reset VAD processor"""
     audio_processor.reset()
     return {"status": "VAD reset successfully"}
+
+@app.get("/debug/audio-test")
+async def test_audio_processing():
+    """Debug endpoint to test audio processing"""
+    if not model_manager or not model_manager.is_loaded:
+        return {"error": "Model not loaded"}
+    
+    try:
+        # Create test audio (sine wave)
+        import numpy as np
+        duration = 3  # 3 seconds
+        sample_rate = 16000
+        frequency = 440  # A4 note
+        
+        t = np.linspace(0, duration, int(sample_rate * duration), False)
+        audio_data = np.sin(2 * np.pi * frequency * t)
+        audio_int16 = (audio_data * 16383).astype(np.int16)
+        audio_bytes = audio_int16.tobytes()
+        
+        # Test transcription
+        result = await model_manager.transcribe_audio(audio_bytes)
+        
+        return {
+            "test_status": "completed",
+            "audio_duration": duration,
+            "audio_bytes": len(audio_bytes),
+            "result": result
+        }
+        
+    except Exception as e:
+        return {"error": f"Test failed: {str(e)}"}
 
 if __name__ == "__main__":
     uvicorn.run(
