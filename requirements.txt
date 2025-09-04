@@ -28,3 +28,4 @@ memory-profiler>=0.61.0
 line-profiler>=4.1.0
 pydantic-settings>=2.0.0
 accelerate
+ffmpeg-python>=0.2.0
