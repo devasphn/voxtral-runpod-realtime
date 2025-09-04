@@ -1,6 +1,6 @@
 import os
 from typing import Optional, List, Dict, Any
-from pydantic_settings import BaseSettings  # Changed from pydantic import
+from pydantic_settings import BaseSettings
 import torch
 
 class Settings(BaseSettings):
@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # Server Configuration  
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    HEALTH_PORT: int = 8005
+    HEALTH_PORT: int = 8005  # CORRECTED: Standardized port
     
     # WebSocket Configuration
     WS_TRANSCRIBE_PORT: int = 8765
