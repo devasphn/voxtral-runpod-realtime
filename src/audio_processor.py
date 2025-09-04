@@ -1,4 +1,4 @@
-# FINAL ENHANCED AUDIO PROCESSOR - WITH CONVERSATION MEMORY AND ROBUST PROCESSING
+# FIXED ENHANCED AUDIO PROCESSOR - CORRECTED SLICE INDICES AND METHOD NAMES
 import asyncio
 import logging
 import numpy as np
@@ -12,13 +12,12 @@ import tempfile
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
-import webrtcvad
 import time
 
 logger = logging.getLogger(__name__)
 
 class EnhancedAudioProcessor:
-    """ENHANCED: WebM audio processing with conversation memory and robust handling"""
+    """FIXED: Enhanced WebM audio processing with corrected slice indices"""
     
     def __init__(
         self,
@@ -40,19 +39,24 @@ class EnhancedAudioProcessor:
         self.transcribe_pcm_buffer = bytearray()
         self.understand_pcm_buffer = bytearray()
         
-        # Enhanced thresholds for better sensitivity
-        self.transcribe_threshold = sample_rate * 0.5  # 500ms for transcription
-        self.understand_threshold = sample_rate * 1.0  # 1 second for understanding
+        # FIXED: Enhanced thresholds converted to integers
+        self.transcribe_threshold = int(sample_rate * 0.5)  # 500ms for transcription
+        self.understand_threshold = int(sample_rate * 1.0)  # 1 second for understanding
         
-        # Voice Activity Detection
+        # Voice Activity Detection (optional)
         try:
+            import webrtcvad
             self.vad = webrtcvad.Vad(2)  # Moderate aggressiveness
             self.vad_enabled = True
             logger.info("✅ WebRTC VAD initialized")
-        except:
+        except ImportError:
             self.vad = None
             self.vad_enabled = False
             logger.warning("⚠️ WebRTC VAD not available, using fallback detection")
+        except Exception as e:
+            self.vad = None
+            self.vad_enabled = False
+            logger.warning(f"⚠️ WebRTC VAD initialization failed: {e}")
         
         # Enhanced statistics and monitoring
         self.chunks_processed = 0
@@ -87,10 +91,7 @@ class EnhancedAudioProcessor:
                     format='s16le', 
                     acodec='pcm_s16le', 
                     ac=self.channels, 
-                    ar=str(self.sample_rate),
-                    # Enhanced parameters for better quality
-                    audio_bitrate='128k',
-                    bufsize='1024k'
+                    ar=str(self.sample_rate)
                 )
                 .run_async(
                     pipe_stdin=True, 
@@ -272,7 +273,7 @@ class EnhancedAudioProcessor:
             return {"error": f"Enhanced processing failed: {str(e)}"}
     
     def _process_pcm_buffer_enhanced(self, mode: str, websocket=None) -> Dict[str, Any]:
-        """Enhanced PCM buffer processing with conversation context and VAD"""
+        """FIXED: Enhanced PCM buffer processing with corrected slice indices"""
         try:
             pcm_buffer = (
                 self.transcribe_pcm_buffer if mode == "transcribe" 
@@ -286,9 +287,10 @@ class EnhancedAudioProcessor:
             if len(pcm_buffer) < threshold:
                 return None
             
-            # Extract audio data for processing with overlap for continuity
+            # FIXED: Extract audio data with proper integer indices
             overlap_samples = int(self.sample_rate * 0.1)  # 100ms overlap
-            audio_data = bytes(pcm_buffer[:threshold + overlap_samples])
+            extract_end = min(threshold + overlap_samples, len(pcm_buffer))  # Ensure we don't exceed buffer
+            audio_data = bytes(pcm_buffer[:extract_end])
             del pcm_buffer[:threshold]  # Keep overlap in buffer
             
             # Create WAV file from PCM data
@@ -299,17 +301,20 @@ class EnhancedAudioProcessor:
             
             self.total_audio_length += duration_ms
             
-            # ENHANCED speech detection with VAD and fallback
+            # Enhanced speech detection
             speech_ratio = self._estimate_speech_ratio_enhanced(audio_data)
             
             # Update statistics
-            if speech_ratio > 0.1:
+            if speech_ratio > 0.05:  # Lowered threshold
                 self.speech_chunks_detected += 1
             
             # Get conversation context if available
             conversation_context = ""
             if self.conversation_manager and websocket:
-                conversation_context = self.conversation_manager.get_conversation_context(websocket)
+                try:
+                    conversation_context = self.conversation_manager.get_conversation_context(websocket)
+                except:
+                    conversation_context = ""  # Fallback on error
             
             logger.info(f"🎤 Enhanced processed {mode} PCM audio: {duration_ms:.0f}ms (Total: {self.total_audio_length:.1f}ms) - Speech: {speech_ratio:.3f} - Context: {bool(conversation_context)}")
             
@@ -331,7 +336,7 @@ class EnhancedAudioProcessor:
             return {"error": f"Enhanced processing failed: {str(e)}"}
     
     def _estimate_speech_ratio_enhanced(self, pcm_data: bytes) -> float:
-        """ENHANCED speech detection with WebRTC VAD and improved fallbacks"""
+        """Enhanced speech detection with improved fallbacks"""
         try:
             # Convert PCM to numpy array
             audio_array = np.frombuffer(pcm_data, dtype=np.int16)
@@ -365,13 +370,12 @@ class EnhancedAudioProcessor:
                     logger.debug(f"WebRTC VAD failed, using fallback: {e}")
             
             # Method 2: Enhanced energy-based detection
-            # Calculate RMS energy for the entire audio
             rms_energy = np.sqrt(np.mean(audio_array.astype(np.float64) ** 2))
             
-            # Adaptive threshold based on recent audio history
+            # Adaptive threshold
             silence_threshold = 150  # Base threshold
             
-            # Method 3: Frame-based analysis with improved logic
+            # Method 3: Frame-based analysis
             frame_size = int(self.sample_rate * 0.025)  # 25ms frames
             hop_size = int(self.sample_rate * 0.010)   # 10ms hop
             
@@ -382,9 +386,8 @@ class EnhancedAudioProcessor:
                 frame = audio_array[i:i + frame_size]
                 frame_rms = np.sqrt(np.mean(frame.astype(np.float64) ** 2))
                 
-                # Enhanced detection: combine energy and spectral features
                 if frame_rms > silence_threshold:
-                    # Additional check: zero crossing rate (indicates speech vs noise)
+                    # Additional check: zero crossing rate
                     zero_crossings = np.sum(np.diff(np.signbit(frame)))
                     zcr_normalized = zero_crossings / len(frame)
                     
@@ -395,56 +398,22 @@ class EnhancedAudioProcessor:
             
             frame_ratio = speech_frames / max(total_frames, 1) if total_frames > 0 else 0.0
             
-            # Method 4: Spectral analysis for additional validation
-            spectral_ratio = self._spectral_analysis_speech_detection(audio_array)
-            
-            # Combine all methods with weighted average
+            # Combine methods
             rms_ratio = min(1.0, rms_energy / 1000.0)  # Normalize to 0-1
             
             # Weighted combination
             final_ratio = (
-                frame_ratio * 0.5 +          # Energy-based frames (50%)
-                spectral_ratio * 0.3 +       # Spectral features (30%)
-                rms_ratio * 0.2              # Overall energy (20%)
+                frame_ratio * 0.6 +          # Energy-based frames (60%)
+                rms_ratio * 0.4              # Overall energy (40%)
             )
             
-            logger.debug(f"Enhanced speech detection: Frame={frame_ratio:.3f}, Spectral={spectral_ratio:.3f}, RMS={rms_ratio:.3f}, Final={final_ratio:.3f}")
+            logger.debug(f"Enhanced speech detection: Frame={frame_ratio:.3f}, RMS={rms_ratio:.3f}, Final={final_ratio:.3f}")
             
             return min(1.0, final_ratio)
             
         except Exception as e:
             logger.error(f"Enhanced speech ratio estimation error: {e}")
             return 0.3  # Conservative fallback value
-    
-    def _spectral_analysis_speech_detection(self, audio_array: np.ndarray) -> float:
-        """Additional spectral analysis for speech detection"""
-        try:
-            # Simple spectral centroid calculation
-            # Speech typically has energy concentrated in certain frequency bands
-            
-            # Apply window to avoid edge effects
-            windowed = audio_array * np.hanning(len(audio_array))
-            
-            # Compute FFT
-            fft = np.abs(np.fft.rfft(windowed))
-            freqs = np.fft.rfftfreq(len(windowed), 1/self.sample_rate)
-            
-            # Focus on speech frequency range (300-3400 Hz)
-            speech_band_start = int(300 * len(fft) / (self.sample_rate / 2))
-            speech_band_end = int(3400 * len(fft) / (self.sample_rate / 2))
-            
-            speech_energy = np.sum(fft[speech_band_start:speech_band_end])
-            total_energy = np.sum(fft)
-            
-            if total_energy > 0:
-                speech_ratio = speech_energy / total_energy
-                return min(1.0, speech_ratio * 2)  # Boost speech band ratio
-            else:
-                return 0.0
-                
-        except Exception as e:
-            logger.debug(f"Spectral analysis failed: {e}")
-            return 0.0
     
     def _pcm_to_wav_enhanced(self, pcm_data: bytes) -> bytes:
         """Enhanced PCM to WAV conversion with better error handling"""
@@ -487,7 +456,7 @@ class EnhancedAudioProcessor:
                     pass
                 self.understand_ffmpeg_process = None
             
-            # Wait before restart (exponential backoff could be added here)
+            # Wait before restart
             await asyncio.sleep(0.5)
             
             # Restart process
@@ -496,7 +465,7 @@ class EnhancedAudioProcessor:
         except Exception as e:
             logger.error(f"Failed to restart enhanced {mode} process: {e}")
     
-    def get_enhanced_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> Dict[str, Any]:
         """Get comprehensive enhanced audio processing statistics"""
         avg_processing_time = (
             sum(self.processing_times) / len(self.processing_times)
@@ -523,8 +492,8 @@ class EnhancedAudioProcessor:
             "avg_processing_time_ms": round(avg_processing_time * 1000, 2),
             "conversation_manager_enabled": self.conversation_manager is not None,
             "enhanced_features": [
-                "✅ WebRTC Voice Activity Detection",
-                "✅ Spectral Speech Analysis", 
+                "✅ Fixed Slice Indices Processing",
+                "✅ Enhanced Speech Detection", 
                 "✅ Conversation Context Integration",
                 "✅ Enhanced Buffer Management",
                 "✅ Automatic Process Recovery",
@@ -532,7 +501,7 @@ class EnhancedAudioProcessor:
             ]
         }
     
-    def reset_enhanced(self):
+    def reset(self):
         """Enhanced reset with comprehensive cleanup"""
         self.transcribe_pcm_buffer.clear()
         self.understand_pcm_buffer.clear()
@@ -545,8 +514,8 @@ class EnhancedAudioProcessor:
         
         logger.info("✅ Enhanced audio processor reset completed")
     
-    async def cleanup_enhanced(self):
-        """Enhanced cleanup with comprehensive resource management"""
+    async def cleanup(self):
+        """FIXED: Renamed from cleanup_enhanced to cleanup for compatibility"""
         logger.info("🧹 Starting enhanced audio processor cleanup...")
         
         processes = [
@@ -583,9 +552,9 @@ class EnhancedAudioProcessor:
         self.executor.shutdown(wait=True, timeout=10)
         
         # Final cleanup
-        self.reset_enhanced()
+        self.reset()
         
         logger.info("✅ Enhanced audio processor fully cleaned up")
 
-# Create alias for backwards compatibility
+# Backwards compatibility alias
 AudioProcessor = EnhancedAudioProcessor
