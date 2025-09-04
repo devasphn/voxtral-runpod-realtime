@@ -1,18 +1,21 @@
-# FINAL PERFECTED SOLUTION - model_loader.py - FLASH ATTENTION & ROBUST ERROR HANDLING
+# FIXED MODEL LOADER - WITH BETTER ERROR HANDLING AND DEBUGGING
 import asyncio
 import logging
 import torch
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
+import gc
 import tempfile
 import os
 import wave
+import base64
+import numpy as np
 
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
 
 logger = logging.getLogger(__name__)
 
 class VoxtralModelManager:
-    """FINAL PERFECTED: Voxtral model manager with Flash Attention 2, correct API usage, and hardened error handling."""
+    """FIXED: Unified Voxtral model manager with improved audio processing"""
     
     def __init__(
         self, 
@@ -23,106 +26,344 @@ class VoxtralModelManager:
         self.model_name = model_name
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.torch_dtype = torch_dtype
+        
+        # Model components
         self.model: Optional[VoxtralForConditionalGeneration] = None
         self.processor: Optional[AutoProcessor] = None
+        
+        # State
         self.is_loaded = False
-        self.supported_languages = {"en", "es", "fr", "pt", "hi", "de", "nl", "it"}
-        logger.info(f"✅ FINAL PERFECTED VoxtralModelManager initialized for {model_name} on {self.device}")
+        self.model_info = {}
+        
+        logger.info(f"Initialized VoxtralModelManager for {model_name} on {self.device}")
     
     async def load_model(self) -> None:
+        """Load Voxtral model and processor with error handling"""
         try:
-            logger.info(f"🔄 Loading FINAL PERFECTED Voxtral model: {self.model_name}")
-            if torch.cuda.is_available(): torch.cuda.empty_cache()
+            logger.info(f"🔄 Loading Voxtral model: {self.model_name}")
             
+            # Clear GPU memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                gc.collect()
+            
+            # Load processor
+            logger.info("Loading processor...")
             self.processor = AutoProcessor.from_pretrained(self.model_name)
             
-            # THE FIX: Explicitly use flash_attention_2 for max performance on compatible GPUs
+            # Load model
+            logger.info("Loading model...")
             self.model = VoxtralForConditionalGeneration.from_pretrained(
-                self.model_name, torch_dtype=self.torch_dtype, device_map="auto",
-                trust_remote_code=True, low_cpu_mem_usage=True,
-                attn_implementation="flash_attention_2"
+                self.model_name,
+                torch_dtype=self.torch_dtype,
+                device_map="auto",
+                trust_remote_code=True,
+                low_cpu_mem_usage=True
             )
+            
+            # Set to evaluation mode
             self.model.eval()
+            
+            # Store model info
+            self.model_info = {
+                "model_name": self.model_name,
+                "device": str(self.device),
+                "dtype": str(self.torch_dtype),
+                "parameters": self._count_parameters(),
+                "memory_usage": self._get_memory_usage()
+            }
+            
             self.is_loaded = True
-            mem_usage = self._get_memory_usage()
-            logger.info(f"✅ FINAL PERFECTED Model loaded! Memory usage: {mem_usage.get('gpu_memory_gb', 0):.2f} GB")
+            logger.info(f"✅ Model loaded successfully: {self.model_info}")
+            
         except Exception as e:
-            logger.critical(f"❌ FAILED to load model: {e}", exc_info=True)
+            logger.error(f"❌ Failed to load model: {e}")
             raise RuntimeError(f"Model loading failed: {e}")
     
-    async def transcribe_audio_pure(self, audio_data: bytes, language: str = "en") -> Dict[str, Any]:
-        if not self.is_loaded: return {"error": "Model not loaded"}
-        if not audio_data or len(audio_data) < 1000: return {"text": ""}
+    async def transcribe_audio(self, audio_data: bytes) -> Dict[str, Any]:
+        """TRANSCRIPTION MODE: Audio -> Text (ASR only) with improved error handling"""
+        if not self.is_loaded:
+            logger.error("Model not loaded for transcription")
+            return {"error": "Model not loaded"}
         
-        temp_path = self._create_wav_file(audio_data)
-        if not temp_path: return {"error": "Failed to create temporary audio file"}
-        
+        temp_path = None
         try:
-            inputs = self.processor.apply_transcription_request(
-                language=language if language in self.supported_languages else "en",
-                audio=temp_path, return_tensors="pt"
-            ).to(self.device)
+            # Validate input
+            if not audio_data or len(audio_data) < 100:
+                logger.warning(f"Invalid audio data: {len(audio_data) if audio_data else 0} bytes")
+                return {"error": "Invalid or insufficient audio data"}
             
+            logger.info(f"Processing transcription for {len(audio_data)} bytes of audio data")
+            
+            # Create temporary WAV file from audio data
+            temp_path = self._audio_bytes_to_wav_file(audio_data)
+            
+            if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 100:
+                logger.error(f"Failed to create valid WAV file: {temp_path}")
+                return {"error": "Failed to create valid audio file"}
+            
+            logger.info(f"Created WAV file: {temp_path} ({os.path.getsize(temp_path)} bytes)")
+            
+            # Use transcription request for pure ASR
+            inputs = self.processor.apply_transcription_request(
+                audio=temp_path,
+                language="en", 
+                model_id=self.model_name,
+                return_tensors="pt"
+            )
+            
+            # Move to device
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            logger.info("Running model inference for transcription...")
+            
+            # Generate transcription
             with torch.no_grad():
                 outputs = self.model.generate(
-                    **inputs, max_new_tokens=256, temperature=0.0, do_sample=False,
+                    **inputs,
+                    max_new_tokens=512,
+                    temperature=0.0,
+                    do_sample=False,
                     pad_token_id=self.processor.tokenizer.pad_token_id,
-                    eos_token_id=self.processor.tokenizer.eos_token_id, use_cache=True
+                    eos_token_id=self.processor.tokenizer.eos_token_id
                 )
             
+            # Decode output
             input_length = inputs['input_ids'].shape[1]
-            transcription = self.processor.tokenizer.decode(outputs[0, input_length:], skip_special_tokens=True).strip()
-            return {"type": "transcription", "text": transcription, "perfect": True}
+            generated_tokens = outputs[0][input_length:]
+            transcription = self.processor.tokenizer.decode(
+                generated_tokens, 
+                skip_special_tokens=True
+            ).strip()
+            
+            # Clean up temp file
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+            logger.info(f"Raw transcription result: '{transcription}'")
+            
+            # Return even empty transcriptions for debugging
+            if not transcription:
+                logger.warning("Empty transcription generated")
+                return {
+                    "type": "transcription",
+                    "text": "",
+                    "language": "en",
+                    "confidence": 0.0,
+                    "timestamp": asyncio.get_event_loop().time(),
+                    "debug": "empty_transcription"
+                }
+            
+            logger.info(f"✅ Transcription successful: '{transcription}'")
+            
+            return {
+                "type": "transcription",
+                "text": transcription,
+                "language": "en",
+                "confidence": 0.95,
+                "timestamp": asyncio.get_event_loop().time()
+            }
+            
         except Exception as e:
             logger.error(f"Transcription error: {e}", exc_info=True)
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
             return {"error": f"Transcription failed: {str(e)}"}
-        finally:
-            if os.path.exists(temp_path): os.unlink(temp_path)
     
-    async def generate_understanding_response(self, transcribed_text: str, user_query: str, context: str = "") -> Dict[str, Any]:
-        if not self.is_loaded: return {"error": "Model not loaded"}
-        if not transcribed_text.strip(): return {"response": "I didn't hear anything clearly. Could you please repeat that?"}
-
+    async def understand_audio(self, audio_data: bytes, query: str = None) -> Dict[str, Any]:
+        """UNDERSTANDING MODE: Audio -> Intelligent Response (ASR + LLM) with improved handling"""
+        if not self.is_loaded:
+            logger.error("Model not loaded for understanding")
+            return {"error": "Model not loaded"}
+        
+        temp_path = None
         try:
-            system_message = f"You are a helpful AI assistant. The user's speech was: '{transcribed_text}'. The user's instruction is: '{user_query}'. "
-            if context: system_message += f"Previous context: {context}"
+            # Validate input
+            if not audio_data or len(audio_data) < 100:
+                logger.warning(f"Invalid audio data: {len(audio_data) if audio_data else 0} bytes")
+                return {"error": "Invalid or insufficient audio data"}
             
-            conversation = [{"role": "system", "content": system_message}]
-            inputs = self.processor.apply_chat_template(conversation, return_tensors="pt").to(self.device)
+            logger.info(f"Processing understanding for {len(audio_data)} bytes of audio data")
             
+            # Create temporary WAV file from audio data
+            temp_path = self._audio_bytes_to_wav_file(audio_data)
+            
+            if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 100:
+                logger.error(f"Failed to create valid WAV file: {temp_path}")
+                return {"error": "Failed to create valid audio file"}
+            
+            logger.info(f"Created WAV file: {temp_path} ({os.path.getsize(temp_path)} bytes)")
+            
+            # UNDERSTANDING MODE: Audio conversation for intelligent response
+            conversation = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "audio",
+                            "path": temp_path
+                        }
+                    ]
+                }
+            ]
+            
+            # Apply chat template for understanding
+            inputs = self.processor.apply_chat_template(
+                conversation,
+                return_tensors="pt"
+            )
+            
+            # Move to device
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            logger.info("Running model inference for understanding...")
+            
+            # Generate intelligent response (ASR + LLM)
             with torch.no_grad():
                 outputs = self.model.generate(
-                    **inputs, max_new_tokens=256, temperature=0.2, top_p=0.95, do_sample=True,
+                    **inputs,
+                    max_new_tokens=512,
+                    temperature=0.2,
+                    top_p=0.95,
+                    do_sample=True,
                     pad_token_id=self.processor.tokenizer.pad_token_id,
-                    eos_token_id=self.processor.tokenizer.eos_token_id, use_cache=True
+                    eos_token_id=self.processor.tokenizer.eos_token_id
                 )
             
+            # Decode output
             input_length = inputs['input_ids'].shape[1]
-            response = self.processor.tokenizer.decode(outputs[0, input_length:], skip_special_tokens=True).strip()
-            return {"type": "understanding", "response": response, "perfect": True}
+            generated_tokens = outputs[0][input_length:]
+            response = self.processor.tokenizer.decode(
+                generated_tokens, 
+                skip_special_tokens=True
+            ).strip()
+            
+            # Clean up temp file
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+            logger.info(f"Raw understanding result: '{response}'")
+            
+            # Return even empty responses for debugging
+            if not response:
+                logger.warning("Empty understanding response generated")
+                return {
+                    "type": "understanding",
+                    "response": "I couldn't understand the audio clearly.",
+                    "query": query or "Audio understanding",
+                    "timestamp": asyncio.get_event_loop().time(),
+                    "debug": "empty_response"
+                }
+            
+            logger.info(f"✅ Understanding successful: '{response}'")
+            
+            return {
+                "type": "understanding",
+                "response": response,
+                "query": query or "Audio understanding",
+                "timestamp": asyncio.get_event_loop().time()
+            }
+            
         except Exception as e:
-            logger.error(f"Understanding generation error: {e}", exc_info=True)
+            logger.error(f"Understanding error: {e}", exc_info=True)
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
             return {"error": f"Understanding failed: {str(e)}"}
     
-    def _create_wav_file(self, audio_data: bytes) -> Optional[str]:
+    def _audio_bytes_to_wav_file(self, audio_bytes: bytes) -> str:
+        """Convert audio bytes to WAV file with improved error handling"""
         try:
-            fd, temp_path = tempfile.mkstemp(suffix='.wav')
-            os.close(fd)
-            with wave.open(temp_path, 'wb') as wf:
-                wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(16000); wf.writeframes(audio_data)
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
+            os.close(temp_fd)
+            
+            # Check if it's already a WAV file
+            if audio_bytes.startswith(b'RIFF') and b'WAVE' in audio_bytes[:20]:
+                # It's already a WAV file
+                with open(temp_path, 'wb') as f:
+                    f.write(audio_bytes)
+                logger.info(f"✅ Used existing WAV format: {len(audio_bytes)} bytes")
+                return temp_path
+            
+            # Assume raw PCM data
+            if len(audio_bytes) % 2 == 1:
+                audio_bytes = audio_bytes[:-1]
+            
+            if len(audio_bytes) < 32:  # Too small
+                raise ValueError(f"Audio data too small: {len(audio_bytes)} bytes")
+            
+            # Convert to numpy array
+            try:
+                audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+                logger.info(f"Converted {len(audio_bytes)} bytes to {len(audio_array)} samples")
+            except Exception as e:
+                logger.error(f"Failed to convert audio bytes to array: {e}")
+                raise
+            
+            # Create WAV file
+            with wave.open(temp_path, 'wb') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(16000)  # 16kHz
+                wav_file.writeframes(audio_array.tobytes())
+            
+            logger.info(f"✅ Created WAV file: {len(audio_bytes)} bytes -> {temp_path} ({os.path.getsize(temp_path)} bytes)")
             return temp_path
+            
         except Exception as e:
-            logger.error(f"WAV file creation failed: {e}", exc_info=True)
-            return None
-
+            logger.error(f"Failed to create WAV file: {e}")
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            raise RuntimeError(f"Audio file creation failed: {e}")
+    
+    def _count_parameters(self) -> int:
+        """Count total model parameters"""
+        if self.model is None:
+            return 0
+        return sum(p.numel() for p in self.model.parameters())
+    
     def _get_memory_usage(self) -> Dict[str, float]:
-        if not torch.cuda.is_available(): return {"gpu_memory_gb": 0.0}
-        return {"gpu_memory_gb": round(torch.cuda.memory_allocated() / 1024**3, 2)}
-
+        """Get GPU memory usage"""
+        if not torch.cuda.is_available():
+            return {"gpu_memory": 0.0}
+        
+        try:
+            allocated = torch.cuda.memory_allocated() / 1024**3
+            cached = torch.cuda.memory_reserved() / 1024**3
+            total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            
+            return {
+                "gpu_allocated_gb": round(allocated, 2),
+                "gpu_cached_gb": round(cached, 2),
+                "gpu_total_gb": round(total, 2)
+            }
+        except Exception as e:
+            logger.error(f"Error getting GPU memory usage: {e}")
+            return {"gpu_memory": 0.0}
+    
     async def cleanup(self) -> None:
-        logger.info("🧹 Cleaning up FINAL PERFECTED model resources...")
-        del self.model
-        del self.processor
-        self.model, self.processor = None, None
-        if torch.cuda.is_available(): torch.cuda.empty_cache()
-        logger.info("✅ FINAL PERFECTED model cleanup completed.")
+        """Clean up model resources"""
+        logger.info("🧹 Cleaning up model resources...")
+        
+        if self.model is not None:
+            del self.model
+            self.model = None
+        
+        if self.processor is not None:
+            del self.processor
+            self.processor = None
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        gc.collect()
+        self.is_loaded = False
+        logger.info("✅ Model cleanup completed")
