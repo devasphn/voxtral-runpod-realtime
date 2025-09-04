@@ -1,4 +1,4 @@
-# COMPLETELY FIXED MAIN.PY - WITH PROPER RESULT HANDLING
+# COMPLETELY FIXED MAIN.PY - REPLACE ENTIRE src/main.py FILE
 import asyncio
 import logging
 import signal
@@ -21,11 +21,11 @@ from src.websocket_handler import WebSocketManager
 from src.conversation_manager import ConversationManager
 from src.utils import get_system_info
 
-# COMPLETELY FIXED: Import the corrected model manager
-from fixed_model_loader import VoxtralModelManager
+# COMPLETELY FIXED: Import the corrected model manager from the same file
+from src.model_loader import VoxtralModelManager
 
 try:
-    from src.fixed_audio_processor import FixedAudioProcessor as AudioProcessor
+    from src.audio_processor import FixedAudioProcessor as AudioProcessor
 except ImportError:
     from src.audio_processor import AudioProcessor
 
@@ -511,7 +511,7 @@ async def debug_completely_fixed():
 if __name__ == "__main__":
     try:
         uvicorn.run(
-            "fixed_main:app",
+            "src.main:app",
             host="0.0.0.0",
             port=8000,
             reload=False,
