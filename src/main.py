@@ -1,4 +1,4 @@
-# FIXED MAIN.PY - UNIFIED APPROACH WITH BULLETPROOF ERROR HANDLING
+# FIXED MAIN.PY - UNIFIED APPROACH WITH IMPROVED SPEECH DETECTION
 import asyncio
 import logging
 from contextlib import asynccontextmanager
@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="Voxtral Mini 3B - UNIFIED Real-Time API",
-    description="UNIFIED: Transcription & Understanding with bulletproof WebSocket handling",
+    description="UNIFIED: Transcription & Understanding with improved speech detection",
     version="3.0.0",
     lifespan=lifespan
 )
@@ -93,7 +93,7 @@ async def health_check():
             "status": "healthy",
             "model_status": model_status,
             "active_connections": ws_manager.connection_count,
-            "unified_processing": "FFmpeg streaming for both modes",
+            "unified_processing": "FFmpeg streaming with improved speech detection",
             "transcription_mode": "ASR only - Speech to Text",
             "understanding_mode": "ASR + LLM - Speech to Intelligent Response",
             "audio_processing": "Unified FFmpeg WebM streaming",
@@ -116,7 +116,7 @@ async def model_info():
         "device": str(settings.DEVICE),
         "dtype": str(settings.TORCH_DTYPE),
         "context_length": "32K tokens",
-        "audio_processing": "Unified FFmpeg WebM -> PCM streaming",
+        "audio_processing": "Unified FFmpeg WebM -> PCM streaming with improved speech detection",
         "transcription_mode": "ASR only - converts speech to text",
         "understanding_mode": "ASR + LLM - speech to intelligent response",
         "supported_languages": [
@@ -124,7 +124,7 @@ async def model_info():
             "Hindi", "German", "Dutch", "Italian"
         ],
         "capabilities": [
-            "✅ Pure ASR transcription with unified processing",
+            "✅ Pure ASR transcription with improved speech detection",
             "✅ Audio understanding (speak -> get intelligent reply)",
             "✅ Real-time unified FFmpeg WebM processing",
             "✅ Bulletproof WebSocket error handling",
@@ -135,7 +135,7 @@ async def model_info():
 
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
-    """TRANSCRIPTION MODE: Speech -> Text (ASR only) - UNIFIED processing"""
+    """TRANSCRIPTION MODE: Speech -> Text (ASR only) - UNIFIED processing with improved detection"""
     await ws_manager.connect(websocket, "transcribe")
     
     try:
@@ -156,9 +156,9 @@ async def websocket_transcribe(websocket: WebSocket):
                     duration_ms = result.get("duration_ms", 0)
                     speech_ratio = result.get("speech_ratio", 0)
                     
-                    # Only process if we have significant speech
-                    if duration_ms > 500 and speech_ratio > 0.3:
-                        logger.info(f"🎤 TRANSCRIBING unified processed audio ({duration_ms:.0f}ms, speech: {speech_ratio:.2f})")
+                    # MUCH MORE LENIENT THRESHOLDS for better detection
+                    if duration_ms > 300 and speech_ratio > 0.1:  # Lowered thresholds significantly
+                        logger.info(f"🎤 TRANSCRIBING unified processed audio ({duration_ms:.0f}ms, speech: {speech_ratio:.3f})")
                         
                         if model_manager and model_manager.is_loaded:
                             # Use TRANSCRIPTION mode - ASR only
@@ -167,12 +167,16 @@ async def websocket_transcribe(websocket: WebSocket):
                             # Send transcription if meaningful and no errors
                             if (transcription_result.get("text") and 
                                 "error" not in transcription_result and
-                                len(transcription_result["text"].strip()) > 2):
+                                len(transcription_result["text"].strip()) > 0):  # Accept any non-empty text
                                 
                                 await websocket.send_json(transcription_result)
-                                logger.info(f"✅ TRANSCRIBED: '{transcription_result['text'][:50]}...'")
+                                logger.info(f"✅ TRANSCRIBED: '{transcription_result['text']}'")
+                            else:
+                                logger.warning(f"No valid transcription: {transcription_result}")
                         else:
                             await websocket.send_json({"error": "Model not loaded"})
+                    else:
+                        logger.debug(f"Skipping transcription: duration={duration_ms:.0f}ms, speech_ratio={speech_ratio:.3f}")
                 elif result and "error" in result:
                     logger.error(f"Audio processing error: {result['error']}")
                     
@@ -196,7 +200,7 @@ async def websocket_transcribe(websocket: WebSocket):
 
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
-    """UNDERSTANDING MODE: Speech -> Intelligent Response (ASR + LLM) - UNIFIED processing"""
+    """UNDERSTANDING MODE: Speech -> Intelligent Response (ASR + LLM) - UNIFIED processing with improved detection"""
     await ws_manager.connect(websocket, "understand")
     
     try:
@@ -240,9 +244,9 @@ async def websocket_understand(websocket: WebSocket):
                     duration_ms = result.get("duration_ms", 0)
                     speech_ratio = result.get("speech_ratio", 0)
                     
-                    # Only process if we have significant speech
-                    if duration_ms > 1000 and speech_ratio > 0.2:
-                        logger.info(f"🎤 UNDERSTANDING unified processed audio ({duration_ms:.0f}ms, speech: {speech_ratio:.2f})")
+                    # MUCH MORE LENIENT THRESHOLDS for better detection
+                    if duration_ms > 500 and speech_ratio > 0.1:  # Lowered thresholds significantly
+                        logger.info(f"🎤 UNDERSTANDING unified processed audio ({duration_ms:.0f}ms, speech: {speech_ratio:.3f})")
                         
                         if model_manager and model_manager.is_loaded:
                             # Use UNDERSTANDING mode - ASR + LLM
@@ -251,14 +255,16 @@ async def websocket_understand(websocket: WebSocket):
                             # Send response if meaningful and no errors
                             if ("response" in understanding_result and 
                                 "error" not in understanding_result and
-                                len(understanding_result["response"].strip()) > 2):
+                                len(understanding_result["response"].strip()) > 0):  # Accept any non-empty response
                                 
                                 await websocket.send_json(understanding_result)
-                                logger.info(f"✅ UNDERSTOOD: '{understanding_result['response'][:50]}...'")
+                                logger.info(f"✅ UNDERSTOOD: '{understanding_result['response']}'")
                             else:
-                                await websocket.send_json({"error": "No meaningful response generated"})
+                                logger.warning(f"No valid understanding: {understanding_result}")
                         else:
                             await websocket.send_json({"error": "Model not loaded"})
+                    else:
+                        logger.debug(f"Skipping understanding: duration={duration_ms:.0f}ms, speech_ratio={speech_ratio:.3f}")
                 elif result and "error" in result:
                     logger.error(f"Audio understanding processing error: {result['error']}")
                     await websocket.send_json({"error": result['error']})
