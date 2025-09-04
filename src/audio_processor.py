@@ -35,14 +35,14 @@ class PerfectAudioProcessor:
     async def _webm_to_pcm_perfect(self, webm_data: bytes) -> Optional[bytes]:
         """THE FIX: Replaced incompatible timeout with the universally supported asyncio.wait_for pattern."""
         cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-f', 's16le', '-acodec', 'pcm_s16le', '-ac', '1', '-ar', str(self.sample_rate), 'pipe:1']
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
             pcm_data, stderr = await asyncio.wait_for(proc.communicate(input=webm_data), timeout=2.0)
             
             if proc.returncode != 0:
-                # This log is expected for tiny, invalid chunks from the browser, so we'll make it a debug log.
+                # This is expected for tiny, invalid chunks from the browser, so we don't log it as a major warning.
                 if "Invalid data" not in stderr.decode():
                     logger.warning(f"FFmpeg failed to convert to PCM: {stderr.decode()}")
                 return None
@@ -50,6 +50,7 @@ class PerfectAudioProcessor:
         except asyncio.TimeoutError:
             logger.error("FFmpeg process timed out during PCM conversion.")
             if proc.returncode is None: proc.kill()
+            await proc.wait()
             return None
         except Exception as e:
             logger.error(f"Error converting WebM to PCM: {e}", exc_info=True)
@@ -68,8 +69,9 @@ class PerfectAudioProcessor:
                 start = i * self.vad_frame_size_bytes
                 end = start + self.vad_frame_size_bytes
                 if self.vad.is_speech(pcm_data[start:end], self.sample_rate):
-                    return True
-        except Exception:
+                    return True # Found speech, return immediately
+        except Exception as e:
+            logger.warning(f"VAD frame error: {e}. Falling back to energy check.")
             return self._detect_speech_by_energy(pcm_data)
         
         return False
@@ -79,4 +81,4 @@ class PerfectAudioProcessor:
         audio_array = np.frombuffer(pcm_data, dtype=np.int16)
         if audio_array.size == 0: return False
         rms_energy = np.sqrt(np.mean(np.square(audio_array.astype(np.float64))))
-        return rms_energy > 350
+        return rms_energy > 350 # Tuned energy threshold
