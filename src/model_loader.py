@@ -1,424 +1,428 @@
-# ULTIMATE MODEL LOADER - OPTIMIZED FOR REAL-TIME <200MS RESPONSES
+# VOXTRAL UNDERSTANDING-ONLY REAL-TIME STREAMING - COMPLETE SOLUTION
 import asyncio
 import logging
-import torch
-from typing import Optional, Dict, Any, Union
-import gc
-import tempfile
+import signal
+import sys
 import os
-import wave
+from contextlib import asynccontextmanager
+from typing import List, Dict, Any
+import json
 import base64
-import numpy as np
 import time
 
-from transformers import VoxtralForConditionalGeneration, AutoProcessor
+import uvicorn
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, JSONResponse
+import torch
 
+from config.settings import Settings
+from config.logging_config import setup_logging
+from src.websocket_handler import WebSocketManager
+from src.conversation_manager import ConversationManager
+from src.utils import get_system_info
+
+# Import the UNDERSTANDING-ONLY model manager
+from src.model_loader import VoxtralUnderstandingManager
+
+# Import UNDERSTANDING-ONLY audio processor
+try:
+    from src.audio_processor import UnderstandingAudioProcessor as AudioProcessor
+except ImportError:
+    from src.audio_processor import AudioProcessor
+
+# Initialize logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
-class VoxtralModelManager:
-    """ULTIMATE: Real-time optimized Voxtral model manager"""
+# Global settings
+settings = Settings()
+
+# Global managers - UNDERSTANDING ONLY
+model_manager = None
+ws_manager = WebSocketManager()
+conversation_manager = ConversationManager(max_turns=30, context_window_minutes=15)
+audio_processor = AudioProcessor(
+    sample_rate=16000,
+    channels=1,
+    gap_threshold_ms=300,  # 0.3 second gap detection
+    conversation_manager=conversation_manager
+)
+
+# Shutdown flag
+shutdown_event = asyncio.Event()
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    logger.info(f"🛑 Received signal {signum}, initiating graceful shutdown...")
+    shutdown_event.set()
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan - UNDERSTANDING ONLY"""
+    global model_manager
     
-    def __init__(
-        self, 
-        model_name: str = "mistralai/Voxtral-Mini-3B-2507",
-        device: str = "cuda",
-        torch_dtype: torch.dtype = torch.bfloat16,
-        optimize_for_realtime: bool = True
-    ):
-        self.model_name = model_name
-        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
-        self.torch_dtype = torch_dtype
-        self.optimize_for_realtime = optimize_for_realtime
-        
-        # Model components
-        self.model: Optional[VoxtralForConditionalGeneration] = None
-        self.processor: Optional[AutoProcessor] = None
-        
-        # Real-time optimization settings
-        self.is_loaded = False
-        self.model_info = {}
-        
-        # Supported languages
-        self.supported_languages = {
-            "en": "English", "es": "Spanish", "fr": "French", "pt": "Portuguese",
-            "hi": "Hindi", "de": "German", "nl": "Dutch", "it": "Italian"
-        }
-        self.default_language = "en"
-        
-        # Real-time performance tracking
-        self.inference_times = []
-        self.cache_hits = 0
-        self.cache_misses = 0
-        
-        logger.info(f"ULTIMATE VoxtralModelManager: {model_name}, real-time: {optimize_for_realtime}")
+    # Startup
+    logger.info("🚀 Starting Voxtral UNDERSTANDING-ONLY Real-Time Server...")
     
-    async def load_model_optimized(self) -> None:
-        """ULTIMATE: Load model with real-time optimizations"""
+    try:
+        model_manager = VoxtralUnderstandingManager(
+            model_name=settings.MODEL_NAME,
+            device=settings.DEVICE,
+            torch_dtype=settings.TORCH_DTYPE
+        )
+        await model_manager.load_model()
+        logger.info("✅ UNDERSTANDING-ONLY model loaded successfully!")
+    except Exception as e:
+        logger.error(f"❌ Failed to load UNDERSTANDING-ONLY model: {e}")
+        raise RuntimeError(f"UNDERSTANDING-ONLY model loading failed: {e}")
+    
+    # Start background cleanup
+    cleanup_task = asyncio.create_task(background_cleanup())
+    
+    yield
+    
+    # Shutdown
+    logger.info("🛑 Shutting down UNDERSTANDING-ONLY server...")
+    shutdown_event.set()
+    
+    # Cancel background tasks
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+    
+    # Cleanup managers
+    if model_manager:
+        await model_manager.cleanup()
+    await audio_processor.cleanup()
+    
+    logger.info("✅ UNDERSTANDING-ONLY graceful shutdown completed")
+
+async def background_cleanup():
+    """Background maintenance tasks"""
+    while not shutdown_event.is_set():
         try:
-            logger.info(f"🔄 Loading ULTIMATE optimized model: {self.model_name}")
-            
-            # GPU memory optimization
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                gc.collect()
-            
-            # Load processor
-            logger.info("Loading optimized processor...")
-            self.processor = AutoProcessor.from_pretrained(self.model_name)
-            
-            # Load model with real-time optimizations
-            logger.info("Loading optimized model...")
-            model_kwargs = {
-                "torch_dtype": self.torch_dtype,
-                "device_map": "auto",
-                "trust_remote_code": True,
-                "low_cpu_mem_usage": True,
-            }
-            
-            if self.optimize_for_realtime:
-                model_kwargs.update({
-                    "attn_implementation": "flash_attention_2" if torch.cuda.is_available() else None,
-                    "use_cache": True,  # Enable KV cache for faster inference
-                })
-            
-            self.model = VoxtralForConditionalGeneration.from_pretrained(
-                self.model_name, **model_kwargs
-            )
-            
-            # Optimize for inference
-            self.model.eval()
-            
-            if self.optimize_for_realtime:
-                # Compile model for faster inference (PyTorch 2.0+)
-                try:
-                    if hasattr(torch, 'compile'):
-                        logger.info("Compiling model for real-time performance...")
-                        self.model = torch.compile(self.model, mode="reduce-overhead")
-                        logger.info("✅ Model compiled for optimized inference")
-                except Exception as e:
-                    logger.warning(f"Model compilation failed: {e}")
-                
-                # Warm up model with dummy input
-                await self._warmup_model()
-            
-            self.model_info = {
-                "model_name": self.model_name,
-                "device": str(self.device),
-                "dtype": str(self.torch_dtype),
-                "parameters": self._count_parameters(),
-                "memory_usage": self._get_memory_usage(),
-                "real_time_optimized": self.optimize_for_realtime,
-                "supported_languages": list(self.supported_languages.keys()),
-                "ultimate_optimized": True
-            }
-            
-            self.is_loaded = True
-            logger.info(f"✅ ULTIMATE model loaded with optimizations: {self.model_info}")
-            
+            await asyncio.sleep(300)  # Every 5 minutes
+            active_connections = ws_manager.connection_count
+            logger.debug(f"🔄 UNDERSTANDING-ONLY background cleanup: {active_connections} active")
+        except asyncio.CancelledError:
+            break
         except Exception as e:
-            logger.error(f"❌ Failed to load ULTIMATE optimized model: {e}")
-            raise RuntimeError(f"ULTIMATE model loading failed: {e}")
-    
-    async def _warmup_model(self):
-        """Warm up model with dummy inputs for consistent performance"""
-        try:
-            logger.info("🔥 Warming up model for real-time performance...")
-            
-            # Create dummy audio (1 second silence)
-            dummy_audio = np.zeros(16000, dtype=np.float32)
-            dummy_wav_bytes = self._numpy_to_wav_bytes(dummy_audio)
-            
-            # Warm up transcription
-            for _ in range(3):
-                await self.transcribe_realtime_optimized(dummy_wav_bytes, "en")
-            
-            logger.info("✅ Model warmed up for consistent real-time performance")
-            
-        except Exception as e:
-            logger.warning(f"Model warmup failed: {e}")
-    
-    async def transcribe_realtime_optimized(self, audio_data: bytes, language: str = "auto") -> Dict[str, Any]:
-        """ULTIMATE: Real-time optimized transcription targeting <200ms"""
-        if not self.is_loaded:
-            return {"error": "Model not loaded"}
-        
-        start_time = time.time()
-        temp_path = None
-        
-        try:
-            # Fast audio validation
-            if not audio_data or len(audio_data) < 1000:
-                return {"error": "Invalid audio data"}
-            
-            # Create WAV file efficiently
-            temp_path = self._audio_bytes_to_wav_optimized(audio_data)
-            
-            # Language handling
-            valid_language = self.default_language
-            if language and language != "auto" and language in self.supported_languages:
-                valid_language = language
-            
-            # ULTIMATE: Real-time optimized inference
-            inputs = self.processor.apply_transcription_request(
-                language=valid_language,
-                audio=temp_path,
-                model_id=self.model_name,
-                return_tensors="pt"
-            )
-            
-            # Move to device
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            
-            # Real-time inference with optimizations
-            with torch.no_grad(), torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=64,  # Shorter for real-time
-                    temperature=0.0,
-                    do_sample=False,
-                    num_beams=1,
-                    use_cache=True,
-                    pad_token_id=self.processor.tokenizer.pad_token_id,
-                    eos_token_id=self.processor.tokenizer.eos_token_id,
-                    early_stopping=True
-                )
-            
-            # Fast decoding
-            input_length = inputs['input_ids'].shape[1]
-            generated_tokens = outputs[0][input_length:]
-            transcription = self.processor.tokenizer.decode(
-                generated_tokens, skip_special_tokens=True
-            ).strip()
-            
-            # Clean up temp file
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
-            
-            # Performance tracking
-            inference_time = (time.time() - start_time) * 1000  # ms
-            self.inference_times.append(inference_time)
-            if len(self.inference_times) > 100:
-                self.inference_times.pop(0)
-            
-            # Filter transcription
-            filtered_transcription = self._filter_transcription_optimized(transcription)
-            
-            result = {
-                "type": "transcription",
-                "text": filtered_transcription,
-                "language": valid_language,
-                "confidence": 0.95,
-                "inference_time_ms": inference_time,
-                "timestamp": time.time(),
-                "ultimate_optimized": True,
-                "realtime_target_met": inference_time < 200
-            }
-            
-            logger.debug(f"✅ Real-time transcription: {inference_time:.1f}ms - '{filtered_transcription}'")
-            return result
-            
-        except Exception as e:
-            logger.error(f"Real-time transcription error: {e}", exc_info=True)
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-            return {"error": f"Real-time transcription failed: {str(e)}"}
-    
-    async def generate_understanding_optimized(self, transcribed_text: str, user_query: str = None, context: str = "") -> Dict[str, Any]:
-        """ULTIMATE: Real-time optimized understanding generation"""
-        if not self.is_loaded:
-            return {"error": "Model not loaded"}
-        
-        start_time = time.time()
-        
-        try:
-            if not transcribed_text or len(transcribed_text.strip()) < 2:
-                return {"error": "Invalid transcribed text"}
-            
-            # Build efficient conversation
-            system_message = "You are a helpful AI assistant. Respond naturally and concisely to the user's speech."
-            if context:
-                system_message += f" Context: {context[-300:]}"  # Limit context
-            
-            conversation = [
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": transcribed_text}
-            ]
-            
-            # Real-time optimized chat template
-            inputs = self.processor.apply_chat_template(
-                conversation, return_tensors="pt"
-            )
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            
-            # Fast understanding generation
-            with torch.no_grad(), torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=128,  # Concise responses
-                    temperature=0.3,
-                    top_p=0.9,
-                    do_sample=True,
-                    use_cache=True,
-                    pad_token_id=self.processor.tokenizer.pad_token_id,
-                    eos_token_id=self.processor.tokenizer.eos_token_id
-                )
-            
-            # Fast decoding
-            input_length = inputs['input_ids'].shape[1]
-            generated_tokens = outputs[0][input_length:]
-            response = self.processor.tokenizer.decode(
-                generated_tokens, skip_special_tokens=True
-            ).strip()
-            
-            inference_time = (time.time() - start_time) * 1000
-            
-            result = {
-                "type": "understanding",
-                "response": response or f"I heard: '{transcribed_text}'. How can I help?",
-                "inference_time_ms": inference_time,
-                "timestamp": time.time(),
-                "ultimate_optimized": True,
-                "realtime_target_met": inference_time < 200
-            }
-            
-            logger.debug(f"✅ Real-time understanding: {inference_time:.1f}ms")
-            return result
-            
-        except Exception as e:
-            logger.error(f"Real-time understanding error: {e}")
-            return {"error": f"Real-time understanding failed: {str(e)}"}
-    
-    def _filter_transcription_optimized(self, text: str) -> str:
-        """Fast transcription filtering"""
-        if not text:
-            return text
-        
-        # Quick filter for common AI responses
-        ai_patterns = ["I'm", "I am", "Hello!", "How can I", "I'd be happy"]
-        text_lower = text.lower()
-        
-        for pattern in ai_patterns:
-            if text.strip().startswith(pattern) or text_lower.startswith(pattern.lower()):
-                return ""
-        
-        return text.strip()
-    
-    def _audio_bytes_to_wav_optimized(self, audio_bytes: bytes) -> str:
-        """ULTIMATE: Optimized audio conversion for real-time processing"""
-        try:
-            temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
-            os.close(temp_fd)
-            
-            # Fast WAV check
-            if audio_bytes.startswith(b'RIFF') and b'WAVE' in audio_bytes[:20]:
-                with open(temp_path, 'wb') as f:
-                    f.write(audio_bytes)
-                return temp_path
-            
-            # Fast PCM conversion
-            if len(audio_bytes) % 2 == 1:
-                audio_bytes = audio_bytes[:-1]
-            
-            audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
-            
-            # Quick validation
-            if len(audio_array) < 1600:  # 100ms minimum
-                raise ValueError(f"Audio too short: {len(audio_array)} samples")
-            
-            # Fast WAV creation
-            with wave.open(temp_path, 'wb') as wav_file:
-                wav_file.setnchannels(1)
-                wav_file.setsampwidth(2)
-                wav_file.setframerate(16000)
-                wav_file.writeframes(audio_array.tobytes())
-            
-            return temp_path
-            
-        except Exception as e:
-            logger.error(f"Optimized WAV conversion failed: {e}")
-            raise RuntimeError(f"Audio conversion failed: {e}")
-    
-    def _numpy_to_wav_bytes(self, audio_array: np.ndarray) -> bytes:
-        """Convert numpy array to WAV bytes"""
-        wav_io = io.BytesIO()
-        with wave.open(wav_io, 'wb') as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(16000)
-            # Convert float to int16
-            audio_int16 = (audio_array * 32767).astype(np.int16)
-            wav_file.writeframes(audio_int16.tobytes())
-        return wav_io.getvalue()
-    
-    async def optimize_cache(self):
-        """Optimize model cache for better performance"""
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        gc.collect()
-    
-    def get_performance_stats(self) -> Dict[str, Any]:
-        """Get real-time performance statistics"""
-        if not self.inference_times:
-            return {"avg_inference_ms": 0, "target_met_ratio": 0}
-        
-        avg_time = sum(self.inference_times) / len(self.inference_times)
-        under_200ms = sum(1 for t in self.inference_times if t < 200)
-        target_met_ratio = under_200ms / len(self.inference_times)
+            logger.error(f"UNDERSTANDING-ONLY background cleanup error: {e}")
+
+# Create FastAPI app - UNDERSTANDING ONLY
+app = FastAPI(
+    title="Voxtral Mini 3B - UNDERSTANDING-ONLY Real-Time API",
+    description="UNDERSTANDING-ONLY system with 0.3s gap detection and sub-200ms response",
+    version="7.0.0-UNDERSTANDING-ONLY",
+    lifespan=lifespan
+)
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def root():
+    """Serve the main test client page"""
+    with open("static/index.html", "r") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
+
+@app.get("/health")
+async def health_check():
+    """UNDERSTANDING-ONLY: Health check endpoint"""
+    try:
+        system_info = get_system_info()
+        model_status = "loaded" if model_manager and model_manager.is_loaded else "not_loaded"
         
         return {
-            "avg_inference_ms": round(avg_time, 2),
-            "min_inference_ms": round(min(self.inference_times), 2),
-            "max_inference_ms": round(max(self.inference_times), 2),
-            "target_met_ratio": round(target_met_ratio, 3),
-            "total_inferences": len(self.inference_times),
-            "cache_hits": self.cache_hits,
-            "cache_misses": self.cache_misses
+            "status": "healthy",
+            "model_status": model_status,
+            "active_connections": ws_manager.connection_count,
+            "conversation_sessions": len(conversation_manager.conversations),
+            "mode": "UNDERSTANDING_ONLY",
+            "features": [
+                "✅ UNDERSTANDING-ONLY: Pure conversational AI responses to audio",
+                "✅ 0.3-second gap detection for natural speech boundaries", 
+                "✅ Sub-200ms response time optimization",
+                "✅ Enhanced audio processing for human speech",
+                "✅ Fixed WebSocket message handling",
+                "✅ Proper conversation context management"
+            ],
+            "system": system_info,
+            "shutdown_requested": shutdown_event.is_set(),
+            "timestamp": asyncio.get_event_loop().time(),
+            "understanding_only": True
         }
+    except Exception as e:
+        logger.error(f"UNDERSTANDING-ONLY health check failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/model/info")
+async def model_info():
+    """UNDERSTANDING-ONLY: Model information"""
+    if not model_manager or not model_manager.is_loaded:
+        raise HTTPException(status_code=503, detail="Model not loaded")
     
-    def _count_parameters(self) -> int:
-        """Count model parameters"""
-        if self.model is None:
-            return 0
-        return sum(p.numel() for p in self.model.parameters())
-    
-    def _get_memory_usage(self) -> Dict[str, float]:
-        """Get GPU memory usage"""
-        if not torch.cuda.is_available():
-            return {"gpu_memory": 0.0}
-        
-        try:
-            allocated = torch.cuda.memory_allocated() / 1024**3
-            cached = torch.cuda.memory_reserved() / 1024**3
-            total = torch.cuda.get_device_properties(0).total_memory / 1024**3
-            
-            return {
-                "gpu_allocated_gb": round(allocated, 2),
-                "gpu_cached_gb": round(cached, 2),
-                "gpu_total_gb": round(total, 2),
-                "gpu_utilization": round(allocated / total * 100, 2)
+    return {
+        "model_name": settings.MODEL_NAME,
+        "model_size": "3B parameters", 
+        "device": str(settings.DEVICE),
+        "dtype": str(settings.TORCH_DTYPE),
+        "context_length": "32K tokens",
+        "understanding_only": True,
+        "supported_languages": [
+            "English (en)", "Spanish (es)", "French (fr)", "Portuguese (pt)", 
+            "Hindi (hi)", "German (de)", "Dutch (nl)", "Italian (it)"
+        ],
+        "mode_details": {
+            "understanding": {
+                "purpose": "Conversational AI responses to audio with context",
+                "output": "AI assistant responses to user speech with conversation history",
+                "temperature": 0.3,
+                "api_method": "apply_chat_template with conversation context",
+                "gap_detection": "0.3 seconds for natural speech boundaries",
+                "response_target": "Sub-200ms for real-time interaction"
             }
-        except Exception:
-            return {"gpu_memory": 0.0}
+        },
+        "optimizations": [
+            "✅ 0.3-second gap detection using WebRTC VAD",
+            "✅ Sub-200ms response time optimization",
+            "✅ Enhanced audio processing pipeline for human speech",
+            "✅ Conversation context management for better responses",
+            "✅ Proper WebSocket message handling and error recovery"
+        ]
+    }
+
+@app.websocket("/ws/understand")
+async def websocket_understand(websocket: WebSocket):
+    """UNDERSTANDING-ONLY: WebSocket for conversational AI responses to audio"""
+    await ws_manager.connect(websocket, "understand")
+    conversation_manager.start_conversation(websocket)
     
-    async def cleanup(self) -> None:
-        """ULTIMATE: Cleanup model resources"""
-        logger.info("🧹 Cleaning up ULTIMATE model resources...")
+    try:
+        logger.info("🧠 UNDERSTANDING-ONLY session started")
         
-        if self.model is not None:
-            del self.model
-            self.model = None
-        
-        if self.processor is not None:
-            del self.processor
-            self.processor = None
-        
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-        
-        gc.collect()
-        self.is_loaded = False
-        logger.info("✅ ULTIMATE model cleanup completed")
+        while not shutdown_event.is_set():
+            try:
+                # Receive binary audio data directly
+                audio_data = await websocket.receive_bytes()
+                
+                if shutdown_event.is_set():
+                    await websocket.send_json({"info": "Server shutting down"})
+                    break
+                
+                # Process audio with 0.3s gap detection
+                if not audio_data or len(audio_data) < 1000:  # Minimum audio size
+                    logger.debug("Insufficient audio data received")
+                    continue
+                
+                # Process through UNDERSTANDING-ONLY audio processor
+                result = await audio_processor.process_audio_understanding(audio_data, websocket)
+                
+                if result and isinstance(result, dict):
+                    if "error" in result:
+                        logger.error(f"UNDERSTANDING-ONLY audio processing error: {result['error']}")
+                        await websocket.send_json({
+                            "error": f"Audio processing failed: {result['error']}", 
+                            "understanding_only": True
+                        })
+                        continue
+                    
+                    # Check if we have a complete speech segment (0.3s gap detected)
+                    if "speech_complete" in result and result["speech_complete"]:
+                        duration_ms = result.get("duration_ms", 0)
+                        speech_ratio = result.get("speech_ratio", 0)
+                        
+                        # Quality thresholds for understanding
+                        if duration_ms > 500 and speech_ratio > 0.3:  # At least 0.5 second, good speech quality
+                            logger.info(f"🧠 UNDERSTANDING: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
+                            
+                            if model_manager and model_manager.is_loaded:
+                                # Get conversation context for better responses
+                                context = conversation_manager.get_conversation_context(websocket)
+                                
+                                # Generate understanding response using conversation context
+                                understanding_result = await model_manager.generate_understanding_response(
+                                    audio_data=result["audio_data"],
+                                    context=context,
+                                    optimize_for_speed=True  # Sub-200ms target
+                                )
+                                
+                                if (isinstance(understanding_result, dict) and 
+                                    understanding_result.get("response") and 
+                                    "error" not in understanding_result and
+                                    len(understanding_result["response"].strip()) > 5):
+                                    
+                                    transcribed_text = understanding_result.get("transcribed_text", "")
+                                    response = understanding_result["response"]
+                                    
+                                    # Create final result
+                                    final_result = {
+                                        "type": "understanding",
+                                        "transcription": transcribed_text,
+                                        "response": response,
+                                        "timestamp": asyncio.get_event_loop().time(),
+                                        "language": understanding_result.get("language", "en"),
+                                        "response_time_ms": understanding_result.get("processing_time_ms", 0),
+                                        "understanding_only": True,
+                                        "gap_detected": True
+                                    }
+                                    
+                                    # Add to conversation for context
+                                    conversation_manager.add_turn(
+                                        websocket,
+                                        transcription=transcribed_text,
+                                        response=response,
+                                        audio_duration=duration_ms / 1000,
+                                        speech_ratio=speech_ratio,
+                                        mode="understand",
+                                        language=understanding_result.get("language", "en")
+                                    )
+                                    
+                                    # Add stats and send response
+                                    conv_stats = conversation_manager.get_conversation_stats(websocket)
+                                    final_result["conversation"] = conv_stats
+                                    
+                                    await websocket.send_json(final_result)
+                                    logger.info(f"✅ UNDERSTANDING RESPONSE: '{transcribed_text}' → '{response[:50]}...' ({understanding_result.get('processing_time_ms', 0)}ms)")
+                                else:
+                                    logger.warning(f"Invalid understanding result: {understanding_result}")
+                                    await websocket.send_json({
+                                        "error": "Failed to generate understanding response",
+                                        "understanding_only": True
+                                    })
+                            else:
+                                await websocket.send_json({
+                                    "error": "Model not loaded", 
+                                    "understanding_only": True
+                                })
+                        else:
+                            logger.debug(f"Skipping: duration={duration_ms:.0f}ms, speech={speech_ratio:.3f}")
+                    
+                    # Send intermediate feedback for continuous audio
+                    elif "audio_received" in result:
+                        await websocket.send_json({
+                            "type": "audio_received",
+                            "duration_ms": result.get("duration_ms", 0),
+                            "speech_ratio": result.get("speech_ratio", 0),
+                            "gap_detected": False,
+                            "understanding_only": True
+                        })
+                    
+            except WebSocketDisconnect:
+                break
+            except Exception as inner_e:
+                logger.error(f"UNDERSTANDING-ONLY inner WebSocket error: {inner_e}", exc_info=True)
+                try:
+                    if not shutdown_event.is_set():
+                        await websocket.send_json({
+                            "error": f"Processing error: {str(inner_e)}",
+                            "understanding_only": True
+                        })
+                except:
+                    break
+                        
+    except WebSocketDisconnect:
+        logger.info("UNDERSTANDING-ONLY WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"UNDERSTANDING-ONLY WebSocket error: {e}")
+    finally:
+        conversation_manager.cleanup_conversation(websocket)
+        ws_manager.disconnect(websocket)
+
+@app.get("/conversations")
+async def get_conversations():
+    """Get conversation statistics - UNDERSTANDING ONLY"""
+    active_conversations = {}
+    for conn_id, turns in conversation_manager.conversations.items():
+        if turns:
+            active_conversations[conn_id] = {
+                "turns": len(turns),
+                "last_activity": turns[-1].timestamp.isoformat(),
+                "languages": list(set(turn.language for turn in turns if turn.language)),
+                "total_duration": sum(turn.audio_duration for turn in turns),
+                "modes": ["understand"]  # Only understanding mode
+            }
+    
+    return {
+        "active_conversations": len(active_conversations),
+        "total_ws_connections": ws_manager.connection_count,
+        "conversation_details": active_conversations,
+        "system_stats": {
+            "max_turns_per_conversation": conversation_manager.max_turns,
+            "context_window_minutes": conversation_manager.context_window.total_seconds() / 60,
+            "audio_processor_stats": audio_processor.get_stats()
+        },
+        "understanding_only": True,
+        "gap_detection_ms": 300
+    }
+
+@app.post("/conversations/reset")
+async def reset_conversations():
+    """Reset all conversation data"""
+    conversation_manager.conversations.clear()
+    conversation_manager.language_patterns.clear()
+    conversation_manager.audio_context.clear()
+    audio_processor.reset()
+    
+    return {
+        "status": "All conversations and audio processor reset successfully",
+        "understanding_only": True
+    }
+
+@app.get("/debug/understanding-only")
+async def debug_understanding_only():
+    """UNDERSTANDING-ONLY: Enhanced debug information"""
+    return {
+        "conversation_manager": {
+            "active_sessions": len(conversation_manager.conversations),
+            "language_patterns": {k: v[-3:] for k, v in conversation_manager.language_patterns.items()},
+        },
+        "audio_processor": audio_processor.get_stats(),
+        "websocket_manager": ws_manager.get_connection_stats(),
+        "model_status": {
+            "loaded": model_manager.is_loaded if model_manager else False,
+            "memory_usage": model_manager._get_memory_usage() if model_manager and model_manager.is_loaded else {},
+            "supported_languages": model_manager.supported_languages if model_manager else {},
+            "default_language": getattr(model_manager, 'default_language', 'en') if model_manager else 'en'
+        },
+        "system_status": {
+            "shutdown_requested": shutdown_event.is_set(),
+            "background_tasks_active": not shutdown_event.is_set()
+        },
+        "understanding_only_features": [
+            "✅ UNDERSTANDING: Conversational AI responses to audio input",
+            "✅ 0.3-SECOND GAP: Natural speech boundary detection",
+            "✅ SUB-200MS: Optimized response time for real-time interaction",
+            "✅ CONTEXT: Conversation history for better responses",
+            "✅ AUDIO: Enhanced processing pipeline for human speech",
+            "✅ WEBSOCKET: Fixed message handling and error recovery",
+            "✅ MULTILINGUAL: Support for 8+ languages with auto-detection"
+        ],
+        "understanding_only": True,
+        "gap_detection_ms": 300,
+        "target_response_ms": 200
+    }
+
+if __name__ == "__main__":
+    try:
+        uvicorn.run(
+            "main:app",  # Updated to match this file
+            host="0.0.0.0",
+            port=8000,
+            reload=False,
+            log_level="info",
+            access_log=True,
+            timeout_graceful_shutdown=30
+        )
+    except KeyboardInterrupt:
+        logger.info("🛑 UNDERSTANDING-ONLY server stopped by user")
+    except Exception as e:
+        logger.error(f"❌ UNDERSTANDING-ONLY server error: {e}")
+        sys.exit(1)
