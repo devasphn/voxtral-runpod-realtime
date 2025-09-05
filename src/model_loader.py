@@ -1,4 +1,4 @@
-# UNDERSTANDING-ONLY MODEL MANAGER - FIXED IMPORTS
+# PURE UNDERSTANDING-ONLY MODEL MANAGER - FLASH ATTENTION FIXED
 import asyncio
 import logging
 import torch
@@ -16,7 +16,7 @@ from transformers import VoxtralForConditionalGeneration, AutoProcessor
 logger = logging.getLogger(__name__)
 
 class VoxtralUnderstandingManager:
-    """UNDERSTANDING-ONLY: Voxtral model manager optimized for conversational AI"""
+    """PURE UNDERSTANDING-ONLY: Voxtral model manager with Flash Attention fix"""
     
     def __init__(
         self, 
@@ -55,12 +55,13 @@ class VoxtralUnderstandingManager:
         self.target_response_ms = 200  # Sub-200ms target
         self.optimize_for_speed = True
         
-        logger.info(f"Initialized UNDERSTANDING-ONLY VoxtralUnderstandingManager for {model_name} on {self.device}")
+        logger.info(f"Initialized PURE UNDERSTANDING-ONLY VoxtralUnderstandingManager for {model_name} on {self.device}")
     
     async def load_model(self) -> None:
-        """Load Voxtral model with UNDERSTANDING-ONLY optimizations"""
+        """Load Voxtral model with UNDERSTANDING-ONLY optimizations + Flash Attention fix"""
         try:
-            logger.info(f"🔄 Loading UNDERSTANDING-ONLY Voxtral model: {self.model_name}")
+            logger.info(f"🔄 Loading PURE UNDERSTANDING-ONLY Voxtral model: {self.model_name}")
+            logger.info("🚫 Flash Attention DISABLED for compatibility")
             
             # Clear GPU memory
             if torch.cuda.is_available():
@@ -71,15 +72,16 @@ class VoxtralUnderstandingManager:
             logger.info("Loading processor...")
             self.processor = AutoProcessor.from_pretrained(self.model_name)
             
-            # Load model with UNDERSTANDING-ONLY optimizations
-            logger.info("Loading model with UNDERSTANDING-ONLY optimizations...")
+            # Load model with UNDERSTANDING-ONLY optimizations + Flash Attention FIX
+            logger.info("Loading model with PURE UNDERSTANDING-ONLY optimizations...")
             self.model = VoxtralForConditionalGeneration.from_pretrained(
                 self.model_name,
                 torch_dtype=self.torch_dtype,
                 device_map="auto",
                 trust_remote_code=True,
                 low_cpu_mem_usage=True,
-                attn_implementation="flash_attention_2" if torch.cuda.is_available() else None
+                # CRITICAL FIX: Disable Flash Attention completely
+                attn_implementation="eager"  # Force eager attention instead of flash_attention_2
             )
             
             # Set to evaluation mode for inference
@@ -104,16 +106,22 @@ class VoxtralUnderstandingManager:
                 "supported_languages": list(self.supported_languages.values()),
                 "language_codes": list(self.supported_languages.keys()),
                 "understanding_only": True,
+                "transcription_disabled": True,
+                "flash_attention_disabled": True,
+                "attention_implementation": "eager",
                 "target_response_ms": self.target_response_ms,
                 "optimizations_enabled": self.optimize_for_speed
             }
             
             self.is_loaded = True
-            logger.info(f"✅ UNDERSTANDING-ONLY Model loaded successfully: {self.model_info}")
+            logger.info(f"✅ PURE UNDERSTANDING-ONLY Model loaded successfully!")
+            logger.info(f"✅ Flash Attention: DISABLED (eager attention used)")
+            logger.info(f"✅ Mode: UNDERSTANDING-ONLY (no transcription capability)")
+            logger.info(f"✅ Memory usage: {self.model_info['memory_usage']}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to load UNDERSTANDING-ONLY model: {e}")
-            raise RuntimeError(f"UNDERSTANDING-ONLY model loading failed: {e}")
+            logger.error(f"❌ Failed to load PURE UNDERSTANDING-ONLY model: {e}")
+            raise RuntimeError(f"PURE UNDERSTANDING-ONLY model loading failed: {e}")
     
     async def generate_understanding_response(
         self, 
@@ -121,7 +129,7 @@ class VoxtralUnderstandingManager:
         context: str = "",
         optimize_for_speed: bool = True
     ) -> Dict[str, Any]:
-        """UNDERSTANDING-ONLY: Generate conversational AI response from audio"""
+        """PURE UNDERSTANDING-ONLY: Generate conversational AI response from audio"""
         if not self.is_loaded:
             logger.error("Model not loaded for understanding")
             return {"error": "Model not loaded"}
@@ -135,7 +143,7 @@ class VoxtralUnderstandingManager:
                 logger.warning(f"Invalid audio data: {len(audio_data) if audio_data else 0} bytes")
                 return {"error": "Invalid or insufficient audio data"}
             
-            logger.info(f"🧠 UNDERSTANDING-ONLY processing: {len(audio_data)} bytes")
+            logger.info(f"🧠 PURE UNDERSTANDING-ONLY processing: {len(audio_data)} bytes")
             
             # Create temporary WAV file
             temp_path = self._audio_bytes_to_wav_file(audio_data)
@@ -271,21 +279,23 @@ class VoxtralUnderstandingManager:
                 "language": language,
                 "sub_200ms": total_time * 1000 < 200,
                 "understanding_only": True,
+                "transcription_disabled": True,
+                "flash_attention_disabled": True,
                 "optimize_for_speed": optimize_for_speed
             }
             
-            logger.info(f"✅ UNDERSTANDING-ONLY complete: {total_time*1000:.0f}ms total ({'✅' if total_time*1000 < 200 else '⚠️'} sub-200ms)")
+            logger.info(f"✅ PURE UNDERSTANDING-ONLY complete: {total_time*1000:.0f}ms total ({'✅' if total_time*1000 < 200 else '⚠️'} sub-200ms)")
             
             return result
             
         except Exception as e:
-            logger.error(f"UNDERSTANDING-ONLY processing error: {e}", exc_info=True)
+            logger.error(f"PURE UNDERSTANDING-ONLY processing error: {e}", exc_info=True)
             if temp_path and os.path.exists(temp_path):
                 try:
                     os.unlink(temp_path)
                 except:
                     pass
-            return {"error": f"UNDERSTANDING-ONLY processing failed: {str(e)}"}
+            return {"error": f"PURE UNDERSTANDING-ONLY processing failed: {str(e)}"}
     
     def _audio_bytes_to_wav_file(self, audio_bytes: bytes) -> str:
         """Convert audio bytes to WAV file optimized for understanding"""
@@ -417,7 +427,7 @@ class VoxtralUnderstandingManager:
     
     async def cleanup(self) -> None:
         """UNDERSTANDING-ONLY: Cleanup with better resource management"""
-        logger.info("🧹 Cleaning up UNDERSTANDING-ONLY model resources...")
+        logger.info("🧹 Cleaning up PURE UNDERSTANDING-ONLY model resources...")
         
         if self.model is not None:
             del self.model
@@ -434,4 +444,4 @@ class VoxtralUnderstandingManager:
         
         gc.collect()
         self.is_loaded = False
-        logger.info("✅ UNDERSTANDING-ONLY model cleanup completed")
+        logger.info("✅ PURE UNDERSTANDING-ONLY model cleanup completed")
