@@ -1,4 +1,4 @@
-# VOXTRAL UNDERSTANDING-ONLY REAL-TIME STREAMING - COMPLETE SOLUTION
+# UNDERSTANDING-ONLY MAIN APPLICATION - FIXED IMPORTS
 import asyncio
 import logging
 import signal
@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from typing import List, Dict, Any
 import json
 import base64
-import time
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
@@ -22,10 +21,9 @@ from src.websocket_handler import WebSocketManager
 from src.conversation_manager import ConversationManager
 from src.utils import get_system_info
 
-# Import the UNDERSTANDING-ONLY model manager
+# FIXED IMPORT - No circular import
 from src.model_loader import VoxtralUnderstandingManager
 
-# Import UNDERSTANDING-ONLY audio processor
 try:
     from src.audio_processor import UnderstandingAudioProcessor as AudioProcessor
 except ImportError:
@@ -38,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Global settings
 settings = Settings()
 
-# Global managers - UNDERSTANDING ONLY
+# Global managers - UNDERSTANDING-ONLY
 model_manager = None
 ws_manager = WebSocketManager()
 conversation_manager = ConversationManager(max_turns=30, context_window_minutes=15)
@@ -62,11 +60,11 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan - UNDERSTANDING ONLY"""
+    """UNDERSTANDING-ONLY: Application lifespan with proper cleanup"""
     global model_manager
     
     # Startup
-    logger.info("🚀 Starting Voxtral UNDERSTANDING-ONLY Real-Time Server...")
+    logger.info("🚀 Starting UNDERSTANDING-ONLY Voxtral Real-Time Server...")
     
     try:
         model_manager = VoxtralUnderstandingManager(
@@ -115,11 +113,11 @@ async def background_cleanup():
         except Exception as e:
             logger.error(f"UNDERSTANDING-ONLY background cleanup error: {e}")
 
-# Create FastAPI app - UNDERSTANDING ONLY
+# Create FastAPI app
 app = FastAPI(
     title="Voxtral Mini 3B - UNDERSTANDING-ONLY Real-Time API",
     description="UNDERSTANDING-ONLY system with 0.3s gap detection and sub-200ms response",
-    version="7.0.0-UNDERSTANDING-ONLY",
+    version="2.0.0-UNDERSTANDING-ONLY",
     lifespan=lifespan
 )
 
@@ -128,7 +126,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def root():
-    """Serve the main test client page"""
+    """Serve the main UNDERSTANDING-ONLY client page"""
     with open("static/index.html", "r") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
@@ -142,17 +140,19 @@ async def health_check():
         
         return {
             "status": "healthy",
+            "mode": "UNDERSTANDING-ONLY",
             "model_status": model_status,
             "active_connections": ws_manager.connection_count,
             "conversation_sessions": len(conversation_manager.conversations),
-            "mode": "UNDERSTANDING_ONLY",
+            "gap_detection_ms": 300,
+            "target_response_ms": 200,
             "features": [
-                "✅ UNDERSTANDING-ONLY: Pure conversational AI responses to audio",
-                "✅ 0.3-second gap detection for natural speech boundaries", 
+                "✅ UNDERSTANDING-ONLY mode with conversational AI responses",
+                "✅ 0.3-second gap detection using WebRTC VAD",
                 "✅ Sub-200ms response time optimization",
-                "✅ Enhanced audio processing for human speech",
-                "✅ Fixed WebSocket message handling",
-                "✅ Proper conversation context management"
+                "✅ Continuous audio processing with speech boundaries",
+                "✅ Context-aware conversation memory",
+                "✅ Enhanced audio processing for human speech"
             ],
             "system": system_info,
             "shutdown_requested": shutdown_event.is_set(),
@@ -175,33 +175,43 @@ async def model_info():
         "device": str(settings.DEVICE),
         "dtype": str(settings.TORCH_DTYPE),
         "context_length": "32K tokens",
+        "mode": "UNDERSTANDING-ONLY",
+        "gap_detection_ms": 300,
+        "target_response_ms": 200,
         "understanding_only": True,
         "supported_languages": [
             "English (en)", "Spanish (es)", "French (fr)", "Portuguese (pt)", 
             "Hindi (hi)", "German (de)", "Dutch (nl)", "Italian (it)"
         ],
-        "mode_details": {
+        "features": {
+            "gap_detection": {
+                "threshold_ms": 300,
+                "method": "WebRTC VAD",
+                "automatic": True
+            },
             "understanding": {
-                "purpose": "Conversational AI responses to audio with context",
-                "output": "AI assistant responses to user speech with conversation history",
+                "purpose": "Conversational AI responses to audio input",
                 "temperature": 0.3,
-                "api_method": "apply_chat_template with conversation context",
-                "gap_detection": "0.3 seconds for natural speech boundaries",
-                "response_target": "Sub-200ms for real-time interaction"
+                "max_tokens": 200,
+                "context_memory": True
+            },
+            "performance": {
+                "target_response_ms": 200,
+                "optimization": "Flash Attention 2.0",
+                "caching": True
             }
         },
-        "optimizations": [
-            "✅ 0.3-second gap detection using WebRTC VAD",
-            "✅ Sub-200ms response time optimization",
-            "✅ Enhanced audio processing pipeline for human speech",
-            "✅ Conversation context management for better responses",
-            "✅ Proper WebSocket message handling and error recovery"
-        ]
+        "audio_processing": {
+            "sample_rate": 16000,
+            "channels": 1,
+            "format": "WebM → PCM → WAV",
+            "vad_enabled": True
+        }
     }
 
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
-    """UNDERSTANDING-ONLY: WebSocket for conversational AI responses to audio"""
+    """UNDERSTANDING-ONLY: WebSocket endpoint for conversational AI"""
     await ws_manager.connect(websocket, "understand")
     conversation_manager.start_conversation(websocket)
     
@@ -210,16 +220,16 @@ async def websocket_understand(websocket: WebSocket):
         
         while not shutdown_event.is_set():
             try:
-                # Receive binary audio data directly
+                # Receive binary audio data
                 audio_data = await websocket.receive_bytes()
                 
                 if shutdown_event.is_set():
                     await websocket.send_json({"info": "Server shutting down"})
                     break
                 
-                # Process audio with 0.3s gap detection
-                if not audio_data or len(audio_data) < 1000:  # Minimum audio size
-                    logger.debug("Insufficient audio data received")
+                # Validate audio data
+                if not audio_data or len(audio_data) < 100:
+                    logger.debug("Invalid/insufficient audio data received")
                     continue
                 
                 # Process through UNDERSTANDING-ONLY audio processor
@@ -234,63 +244,79 @@ async def websocket_understand(websocket: WebSocket):
                         })
                         continue
                     
-                    # Check if we have a complete speech segment (0.3s gap detected)
-                    if "speech_complete" in result and result["speech_complete"]:
+                    # Send intermediate feedback
+                    if result.get("audio_received") and not result.get("speech_complete"):
+                        await websocket.send_json({
+                            "type": "audio_feedback",
+                            "audio_received": True,
+                            "segment_duration_ms": result.get("segment_duration_ms", 0),
+                            "silence_duration_ms": result.get("silence_duration_ms", 0),
+                            "gap_will_trigger_at_ms": result.get("gap_will_trigger_at_ms", 300),
+                            "speech_ratio": result.get("speech_ratio", 0),
+                            "understanding_only": True
+                        })
+                        continue
+                    
+                    # Process complete speech segment
+                    if result.get("speech_complete") and "audio_data" in result:
                         duration_ms = result.get("duration_ms", 0)
                         speech_ratio = result.get("speech_ratio", 0)
                         
-                        # Quality thresholds for understanding
-                        if duration_ms > 500 and speech_ratio > 0.3:  # At least 0.5 second, good speech quality
-                            logger.info(f"🧠 UNDERSTANDING: {duration_ms:.0f}ms, speech: {speech_ratio:.3f}")
+                        # Quality check for understanding
+                        if duration_ms > 500 and speech_ratio > 0.3:  # At least 0.5s, decent quality
+                            logger.info(f"🧠 UNDERSTANDING-ONLY processing: {duration_ms:.0f}ms, quality: {speech_ratio:.3f}")
                             
                             if model_manager and model_manager.is_loaded:
-                                # Get conversation context for better responses
+                                # Get conversation context
                                 context = conversation_manager.get_conversation_context(websocket)
                                 
-                                # Generate understanding response using conversation context
+                                # Generate understanding response
                                 understanding_result = await model_manager.generate_understanding_response(
-                                    audio_data=result["audio_data"],
+                                    result["audio_data"], 
                                     context=context,
-                                    optimize_for_speed=True  # Sub-200ms target
+                                    optimize_for_speed=True
                                 )
                                 
                                 if (isinstance(understanding_result, dict) and 
                                     understanding_result.get("response") and 
                                     "error" not in understanding_result and
-                                    len(understanding_result["response"].strip()) > 5):
+                                    len(understanding_result["response"].strip()) > 3):
                                     
-                                    transcribed_text = understanding_result.get("transcribed_text", "")
-                                    response = understanding_result["response"]
+                                    response_time_ms = understanding_result.get("processing_time_ms", 0)
+                                    transcribed_text = understanding_result.get("transcribed_text", "Audio processed")
                                     
-                                    # Create final result
-                                    final_result = {
-                                        "type": "understanding",
-                                        "transcription": transcribed_text,
-                                        "response": response,
-                                        "timestamp": asyncio.get_event_loop().time(),
-                                        "language": understanding_result.get("language", "en"),
-                                        "response_time_ms": understanding_result.get("processing_time_ms", 0),
-                                        "understanding_only": True,
-                                        "gap_detected": True
-                                    }
-                                    
-                                    # Add to conversation for context
+                                    # Add to conversation
                                     conversation_manager.add_turn(
                                         websocket,
                                         transcription=transcribed_text,
-                                        response=response,
+                                        response=understanding_result["response"],
                                         audio_duration=duration_ms / 1000,
                                         speech_ratio=speech_ratio,
                                         mode="understand",
                                         language=understanding_result.get("language", "en")
                                     )
                                     
-                                    # Add stats and send response
+                                    # Prepare response
+                                    final_result = {
+                                        "type": "understanding",
+                                        "transcription": transcribed_text,
+                                        "response": understanding_result["response"],
+                                        "response_time_ms": response_time_ms,
+                                        "audio_duration_ms": duration_ms,
+                                        "speech_quality": speech_ratio,
+                                        "gap_detected": result.get("gap_detected", False),
+                                        "language": understanding_result.get("language", "en"),
+                                        "understanding_only": True,
+                                        "sub_200ms": response_time_ms < 200,
+                                        "timestamp": asyncio.get_event_loop().time()
+                                    }
+                                    
+                                    # Add conversation stats
                                     conv_stats = conversation_manager.get_conversation_stats(websocket)
                                     final_result["conversation"] = conv_stats
                                     
                                     await websocket.send_json(final_result)
-                                    logger.info(f"✅ UNDERSTANDING RESPONSE: '{transcribed_text}' → '{response[:50]}...' ({understanding_result.get('processing_time_ms', 0)}ms)")
+                                    logger.info(f"✅ UNDERSTANDING-ONLY complete: '{understanding_result['response'][:50]}...' ({response_time_ms:.0f}ms)")
                                 else:
                                     logger.warning(f"Invalid understanding result: {understanding_result}")
                                     await websocket.send_json({
@@ -299,21 +325,11 @@ async def websocket_understand(websocket: WebSocket):
                                     })
                             else:
                                 await websocket.send_json({
-                                    "error": "Model not loaded", 
+                                    "error": "Model not loaded",
                                     "understanding_only": True
                                 })
                         else:
-                            logger.debug(f"Skipping: duration={duration_ms:.0f}ms, speech={speech_ratio:.3f}")
-                    
-                    # Send intermediate feedback for continuous audio
-                    elif "audio_received" in result:
-                        await websocket.send_json({
-                            "type": "audio_received",
-                            "duration_ms": result.get("duration_ms", 0),
-                            "speech_ratio": result.get("speech_ratio", 0),
-                            "gap_detected": False,
-                            "understanding_only": True
-                        })
+                            logger.debug(f"Skipping low quality: duration={duration_ms:.0f}ms, quality={speech_ratio:.3f}")
                     
             except WebSocketDisconnect:
                 break
@@ -338,7 +354,7 @@ async def websocket_understand(websocket: WebSocket):
 
 @app.get("/conversations")
 async def get_conversations():
-    """Get conversation statistics - UNDERSTANDING ONLY"""
+    """Get conversation statistics"""
     active_conversations = {}
     for conn_id, turns in conversation_manager.conversations.items():
         if turns:
@@ -347,20 +363,22 @@ async def get_conversations():
                 "last_activity": turns[-1].timestamp.isoformat(),
                 "languages": list(set(turn.language for turn in turns if turn.language)),
                 "total_duration": sum(turn.audio_duration for turn in turns),
-                "modes": ["understand"]  # Only understanding mode
+                "modes": list(set(turn.mode for turn in turns))
             }
     
     return {
+        "mode": "UNDERSTANDING-ONLY",
         "active_conversations": len(active_conversations),
         "total_ws_connections": ws_manager.connection_count,
         "conversation_details": active_conversations,
         "system_stats": {
             "max_turns_per_conversation": conversation_manager.max_turns,
             "context_window_minutes": conversation_manager.context_window.total_seconds() / 60,
-            "audio_processor_stats": audio_processor.get_stats()
+            "audio_processor_stats": audio_processor.get_stats(),
+            "gap_detection_ms": 300,
+            "target_response_ms": 200
         },
-        "understanding_only": True,
-        "gap_detection_ms": 300
+        "understanding_only": True
     }
 
 @app.post("/conversations/reset")
@@ -380,6 +398,7 @@ async def reset_conversations():
 async def debug_understanding_only():
     """UNDERSTANDING-ONLY: Enhanced debug information"""
     return {
+        "mode": "UNDERSTANDING-ONLY",
         "conversation_manager": {
             "active_sessions": len(conversation_manager.conversations),
             "language_patterns": {k: v[-3:] for k, v in conversation_manager.language_patterns.items()},
@@ -394,26 +413,26 @@ async def debug_understanding_only():
         },
         "system_status": {
             "shutdown_requested": shutdown_event.is_set(),
-            "background_tasks_active": not shutdown_event.is_set()
+            "background_tasks_active": not shutdown_event.is_set(),
+            "gap_detection_ms": 300,
+            "target_response_ms": 200
         },
         "understanding_only_features": [
-            "✅ UNDERSTANDING: Conversational AI responses to audio input",
-            "✅ 0.3-SECOND GAP: Natural speech boundary detection",
-            "✅ SUB-200MS: Optimized response time for real-time interaction",
-            "✅ CONTEXT: Conversation history for better responses",
-            "✅ AUDIO: Enhanced processing pipeline for human speech",
-            "✅ WEBSOCKET: Fixed message handling and error recovery",
-            "✅ MULTILINGUAL: Support for 8+ languages with auto-detection"
+            "✅ Single WebSocket endpoint: /ws/understand",
+            "✅ 0.3-second gap detection with WebRTC VAD",
+            "✅ Sub-200ms response time optimization", 
+            "✅ Conversational AI responses with context memory",
+            "✅ Enhanced audio processing for human speech",
+            "✅ Continuous recording with automatic speech boundaries",
+            "✅ Real-time feedback with gap detection status"
         ],
-        "understanding_only": True,
-        "gap_detection_ms": 300,
-        "target_response_ms": 200
+        "understanding_only": True
     }
 
 if __name__ == "__main__":
     try:
         uvicorn.run(
-            "main:app",  # Updated to match this file
+            "src.main:app",
             host="0.0.0.0",
             port=8000,
             reload=False,
