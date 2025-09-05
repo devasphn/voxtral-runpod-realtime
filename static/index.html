@@ -3,14 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voxtral Mini 3B - Real-Time Audio Test</title>
+    <title>Voxtral Mini 3B - UNDERSTANDING-ONLY Real-Time</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🎤 Voxtral Mini 3B Real-Time Audio</h1>
-            <p>Test real-time speech transcription and understanding</p>
+            <h1>🧠 Voxtral Mini 3B UNDERSTANDING-ONLY</h1>
+            <p>Real-time conversational AI with 0.3-second gap detection and sub-200ms response</p>
+            <div class="mode-indicator">
+                <span class="badge badge-understanding">✅ UNDERSTANDING-ONLY MODE</span>
+                <span class="badge badge-gap">🎯 0.3s GAP DETECTION</span>
+                <span class="badge badge-speed">⚡ SUB-200ms RESPONSE</span>
+            </div>
         </header>
 
         <div class="status-panel">
@@ -26,50 +31,123 @@
                 <span class="label">Audio Status:</span>
                 <span id="audio-status" class="status">Not Recording</span>
             </div>
+            <div class="status-item">
+                <span class="label">Gap Detection:</span>
+                <span id="gap-status" class="status">300ms</span>
+            </div>
         </div>
 
         <div class="control-panel">
-            <div class="service-selector">
-                <label for="service-type">Service Type:</label>
-                <select id="service-type">
-                    <option value="transcribe">Transcription</option>
-                    <option value="understand">Understanding</option>
-                </select>
+            <div class="understanding-info">
+                <div class="info-card">
+                    <h3>🧠 How UNDERSTANDING-ONLY Works</h3>
+                    <ul>
+                        <li><strong>Continuous Recording:</strong> Speaks naturally without interruption</li>
+                        <li><strong>0.3s Gap Detection:</strong> Automatically detects when you finish speaking</li>
+                        <li><strong>Conversational AI:</strong> Responds intelligently to your speech</li>
+                        <li><strong>Context Memory:</strong> Remembers your conversation for better responses</li>
+                        <li><strong>Sub-200ms Target:</strong> Optimized for real-time interaction</li>
+                    </ul>
+                </div>
             </div>
 
             <div class="audio-controls">
-                <button id="connect-btn" class="btn btn-primary">Connect</button>
-                <button id="record-btn" class="btn btn-secondary" disabled>Start Recording</button>
+                <button id="connect-btn" class="btn btn-primary">Connect to Understanding Service</button>
+                <button id="record-btn" class="btn btn-secondary" disabled>Start Continuous Recording</button>
                 <button id="disconnect-btn" class="btn btn-danger" disabled>Disconnect</button>
             </div>
 
-            <div class="query-input" id="query-section" style="display: none;">
-                <label for="text-query">Text Query (for Understanding):</label>
-                <input type="text" id="text-query" placeholder="What can you hear in this audio?" />
+            <div class="instructions">
+                <h4>📋 Instructions:</h4>
+                <ol>
+                    <li>Click "<strong>Connect to Understanding Service</strong>" to establish connection</li>
+                    <li>Click "<strong>Start Continuous Recording</strong>" to begin voice interaction</li>
+                    <li><strong>Speak naturally</strong> - the system will detect 0.3-second gaps</li>
+                    <li>Wait for <strong>conversational AI responses</strong> after each speech segment</li>
+                    <li>Continue the conversation naturally with context memory</li>
+                </ol>
             </div>
         </div>
 
         <div class="results-panel">
             <div class="results-header">
-                <h3>Results</h3>
+                <h3>🧠 Understanding Results</h3>
                 <button id="clear-results" class="btn btn-small">Clear</button>
             </div>
             <div id="results-container" class="results-container">
-                <p class="no-results">No results yet. Connect and start recording to begin.</p>
+                <p class="no-results">No results yet. Connect and start recording for conversational AI interaction.</p>
+            </div>
+        </div>
+
+        <div class="performance-panel">
+            <h3>⚡ Performance Metrics</h3>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Gap Detection</div>
+                    <div class="metric-value" id="gap-metric">300ms</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Response Time</div>
+                    <div class="metric-value" id="response-metric">--ms</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Mode</div>
+                    <div class="metric-value">Understanding</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Context</div>
+                    <div class="metric-value" id="context-metric">Enabled</div>
+                </div>
             </div>
         </div>
 
         <div class="info-panel">
-            <h3>System Information</h3>
+            <h3>🔧 System Information</h3>
             <div id="system-info" class="system-info">
-                <p>Loading system information...</p>
+                <p>Loading UNDERSTANDING-ONLY system information...</p>
+            </div>
+        </div>
+
+        <div class="features-panel">
+            <h3>✨ UNDERSTANDING-ONLY Features</h3>
+            <div class="features-grid">
+                <div class="feature-item">
+                    <div class="feature-icon">🧠</div>
+                    <div class="feature-title">Conversational AI</div>
+                    <div class="feature-desc">Intelligent responses to your speech</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🎯</div>
+                    <div class="feature-title">Gap Detection</div>
+                    <div class="feature-desc">0.3-second natural speech boundaries</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">⚡</div>
+                    <div class="feature-title">Fast Response</div>
+                    <div class="feature-desc">Sub-200ms response time target</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🔄</div>
+                    <div class="feature-title">Context Memory</div>
+                    <div class="feature-desc">Conversation history for better responses</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🌍</div>
+                    <div class="feature-title">Multilingual</div>
+                    <div class="feature-desc">8+ languages with auto-detection</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🎤</div>
+                    <div class="feature-title">Continuous Audio</div>
+                    <div class="feature-desc">Natural speech flow without interruption</div>
+                </div>
             </div>
         </div>
 
         <div class="logs-panel">
-            <h3>Connection Logs</h3>
+            <h3>📋 Connection Logs</h3>
             <div id="logs-container" class="logs-container">
-                <p class="log-entry">Ready to connect...</p>
+                <p class="log-entry">Ready to connect to UNDERSTANDING-ONLY service...</p>
             </div>
         </div>
     </div>
