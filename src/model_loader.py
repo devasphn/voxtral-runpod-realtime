@@ -8,17 +8,17 @@ import tempfile
 import os
 import time
 import numpy as np
+import base64
 
 # CRITICAL: Import mistral-common for proper Voxtral audio handling
 from mistral_common.audio import Audio
 from mistral_common.protocol.instruct.messages import (
-    TextChunk, 
-    AudioChunk, 
     UserMessage, 
     AssistantMessage,
-    RawAudio
+    ContentChunk,
+    TextChunk,
+    AudioChunk
 )
-from mistral_common.protocol.transcription.request import TranscriptionRequest
 
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
 import soundfile as sf
@@ -126,13 +126,40 @@ class VoxtralUnderstandingManager:
             logger.error(f"❌ Failed to load FIXED model with mistral-common: {e}")
             raise RuntimeError(f"Model loading failed: {e}")
     
-    async def generate_understanding_response(
-        self, 
-        audio_file_path: str, 
-        context: str = "",
-        optimize_for_speed: bool = True
-    ) -> Dict[str, Any]:
-        """COMPLETELY FIXED: Generate understanding response using mistral-common"""
+    def _bytes_to_audio(self, audio_data: bytes) -> Optional[Audio]:
+        """CRITICAL: Convert bytes to mistral-common Audio object"""
+        try:
+            if not audio_data or len(audio_data) < 1000:
+                logger.warning("Audio data too small for processing")
+                return None
+            
+            # Create temporary WAV file for mistral-common
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+                temp_path = temp_file.name
+                
+                # Write WAV header + PCM data
+                import wave
+                with wave.open(temp_path, 'wb') as wav_file:
+                    wav_file.setnchannels(1)  # Mono
+                    wav_file.setsampwidth(2)  # 16-bit
+                    wav_file.setframerate(16000)  # 16kHz
+                    wav_file.writeframes(audio_data)
+                
+                # Create mistral-common Audio object
+                audio = Audio.from_file(temp_path)
+                
+                # Clean up temp file
+                os.unlink(temp_path)
+                
+                logger.debug(f"✅ Created mistral-common Audio object from {len(audio_data)} bytes")
+                return audio
+                
+        except Exception as e:
+            logger.error(f"Failed to create mistral-common Audio object: {e}")
+            return None
+    
+    async def understand_audio(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """COMPLETELY FIXED: Understanding response using proper mistral-common API"""
         if not self.is_loaded:
             logger.error("Model not loaded for understanding")
             return {"error": "Model not loaded"}
@@ -140,80 +167,44 @@ class VoxtralUnderstandingManager:
         start_time = time.time()
         
         try:
-            # Validate input
-            if not audio_file_path or not os.path.exists(audio_file_path):
-                logger.warning(f"Invalid audio file: {audio_file_path}")
-                return {"error": "Invalid or missing audio file"}
+            # Extract data from message
+            audio_data = message.get("audio")
+            text_query = message.get("text", "Please understand and respond to what you hear in the audio.")
             
-            file_size = os.path.getsize(audio_file_path)
-            logger.info(f"🧠 FIXED processing with mistral-common: {audio_file_path} ({file_size} bytes)")
+            if not audio_data:
+                return {"error": "No audio data provided"}
             
-            # CRITICAL FIX: Use mistral-common for proper audio handling
-            logger.info("🎯 Using mistral-common Audio class for proper processing...")
+            # Handle base64 encoded audio
+            if isinstance(audio_data, str):
+                try:
+                    audio_data = base64.b64decode(audio_data)
+                except Exception as e:
+                    logger.error(f"Failed to decode base64 audio: {e}")
+                    return {"error": "Invalid base64 audio data"}
             
-            try:
-                # Method 1: Use mistral-common Audio class (PROPER WAY)
-                audio = Audio.from_file(audio_file_path, strict=False)
-                raw_audio = RawAudio.from_audio(audio)
-                
-                # Create proper conversation format with mistral-common
-                conversation = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "audio", 
-                                "audio": raw_audio.audio  # Use the audio data from RawAudio
-                            },
-                            {
-                                "type": "text",
-                                "text": f"Please understand and respond to what you hear in the audio. {context}" if context else "Please understand and respond to what you hear in the audio."
-                            }
-                        ]
-                    }
-                ]
-                
-                # Use apply_chat_template for understanding
-                inputs = self.processor.apply_chat_template(
-                    conversation,
-                    add_generation_prompt=True,
-                    return_tensors="pt"
-                )
-                
-                logger.info("✅ Successfully processed audio with mistral-common")
-                
-            except Exception as e:
-                logger.warning(f"mistral-common processing failed: {e}, trying alternative method")
-                
-                # Fallback: Direct audio file processing
-                audio_array, sample_rate = sf.read(audio_file_path)
-                if len(audio_array.shape) > 1:
-                    audio_array = audio_array.mean(axis=1)  # Convert to mono
-                if sample_rate != 16000:
-                    from scipy import signal
-                    audio_array = signal.resample(audio_array, int(len(audio_array) * 16000 / sample_rate))
-                
-                conversation = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "audio",
-                                "audio": audio_array.astype(np.float32)
-                            },
-                            {
-                                "type": "text", 
-                                "text": f"Please understand and respond to what you hear in the audio. {context}" if context else "Please understand and respond to what you hear in the audio."
-                            }
-                        ]
-                    }
-                ]
-                
-                inputs = self.processor.apply_chat_template(
-                    conversation,
-                    add_generation_prompt=True,
-                    return_tensors="pt"
-                )
+            logger.info(f"🧠 FIXED processing with mistral-common: {len(audio_data)} bytes")
+            
+            # CRITICAL: Convert bytes to mistral-common Audio object
+            audio = self._bytes_to_audio(audio_data)
+            if not audio:
+                return {"error": "Failed to create Audio object"}
+            
+            # CRITICAL: Create proper conversation format for Voxtral
+            conversation = [
+                UserMessage(content=[
+                    AudioChunk(audio=audio),
+                    TextChunk(text=text_query)
+                ])
+            ]
+            
+            logger.info("✅ Created proper mistral-common conversation format")
+            
+            # CRITICAL: Use apply_chat_template for multi-modal input
+            inputs = self.processor.apply_chat_template(
+                conversation,
+                add_generation_prompt=True,
+                return_tensors="pt"
+            )
             
             # Move to device with correct dtype
             if hasattr(inputs, 'to'):
@@ -227,9 +218,9 @@ class VoxtralUnderstandingManager:
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=120 if optimize_for_speed else 150,
-                    temperature=0.2 if optimize_for_speed else 0.3,
-                    top_p=0.8 if optimize_for_speed else 0.9,
+                    max_new_tokens=120,
+                    temperature=0.2,
+                    top_p=0.8,
                     do_sample=True,
                     repetition_penalty=1.05,
                     use_cache=True,
@@ -258,13 +249,6 @@ class VoxtralUnderstandingManager:
             
             logger.info(f"🧠 FIXED Generated response with mistral-common in {generation_time*1000:.0f}ms: '{response[:50]}...'")
             
-            # Clean up temp file
-            try:
-                if os.path.exists(audio_file_path):
-                    os.unlink(audio_file_path)
-            except:
-                pass
-            
             # Validate response
             if not response or len(response.strip()) < 3:
                 logger.warning("Empty or very short understanding response generated")
@@ -292,7 +276,7 @@ class VoxtralUnderstandingManager:
                 "understanding_only": True,
                 "transcription_disabled": True,
                 "mistral_common_integrated": True,
-                "optimize_for_speed": optimize_for_speed,
+                "optimize_for_speed": True,
                 "model_api_fixed": True
             }
             
@@ -302,13 +286,63 @@ class VoxtralUnderstandingManager:
             
         except Exception as e:
             logger.error(f"FIXED processing error with mistral-common: {e}", exc_info=True)
+            return {"error": f"Processing failed with mistral-common: {str(e)}"}
+    
+    async def generate_understanding_response(
+        self, 
+        audio_file_path: str, 
+        context: str = "",
+        optimize_for_speed: bool = True
+    ) -> Dict[str, Any]:
+        """COMPLETELY FIXED: Generate understanding response from audio file"""
+        if not self.is_loaded:
+            logger.error("Model not loaded for understanding")
+            return {"error": "Model not loaded"}
+        
+        try:
+            # Validate input
+            if not audio_file_path or not os.path.exists(audio_file_path):
+                logger.warning(f"Invalid audio file: {audio_file_path}")
+                return {"error": "Invalid or missing audio file"}
+            
+            # Read audio file as bytes
+            with open(audio_file_path, 'rb') as f:
+                audio_data = f.read()
+            
+            # If it's a WAV file, extract PCM data
+            if audio_file_path.endswith('.wav'):
+                try:
+                    import wave
+                    with wave.open(audio_file_path, 'rb') as wav_file:
+                        frames = wav_file.readframes(wav_file.getnframes())
+                        audio_data = frames
+                except Exception as e:
+                    logger.warning(f"Failed to extract PCM from WAV: {e}, using raw file data")
+            
+            # Create message format
+            message = {
+                "audio": audio_data,
+                "text": f"Please understand and respond to what you hear in the audio. {context}" if context else "Please understand and respond to what you hear in the audio."
+            }
+            
+            # Clean up temp file
+            try:
+                os.unlink(audio_file_path)
+            except:
+                pass
+            
+            # Process through understand_audio
+            return await self.understand_audio(message)
+            
+        except Exception as e:
+            logger.error(f"FIXED file processing error: {e}", exc_info=True)
             # Clean up temp file on error
             try:
-                if 'audio_file_path' in locals() and os.path.exists(audio_file_path):
+                if os.path.exists(audio_file_path):
                     os.unlink(audio_file_path)
             except:
                 pass
-            return {"error": f"Processing failed with mistral-common: {str(e)}"}
+            return {"error": f"File processing failed: {str(e)}"}
     
     def _count_parameters(self) -> int:
         """Count total model parameters"""
