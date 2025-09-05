@@ -438,6 +438,20 @@ class UnderstandingAudioProcessor:
             "webm_conversion": "FIXED with FFmpeg"
         }
     
+    def reset(self):
+        """Reset processor state"""
+        self.audio_segments.clear()
+        self.speech_buffers.clear()
+        self.silence_counters.clear()
+        self.last_audio_time.clear()
+        
+        self.segments_processed = 0
+        self.speech_segments_detected = 0
+        self.gaps_detected = 0
+        self.processing_times.clear()
+        
+        logger.info("✅ FIXED audio processor reset")
+    
     async def cleanup(self):
         """FIXED: Enhanced cleanup"""
         logger.info("🧹 Starting FIXED audio processor cleanup...")
