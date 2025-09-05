@@ -3,18 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🧠 Voxtral UNDERSTANDING-ONLY - Real-Time Conversational AI</title>
+    <title>🧠 Voxtral PURE UNDERSTANDING-ONLY - Real-Time Conversational AI</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🧠 Voxtral UNDERSTANDING-ONLY</h1>
+            <h1>🧠 Voxtral PURE UNDERSTANDING-ONLY</h1>
             <p>Real-Time Conversational AI with 0.3-Second Gap Detection</p>
+            <p><small>🚫 Transcription Functionality: <strong>COMPLETELY DISABLED</strong></small></p>
             <div class="mode-indicator">
-                <span class="badge badge-understanding">Conversational AI</span>
+                <span class="badge badge-understanding">Conversational AI Only</span>
                 <span class="badge badge-gap">0.3s Gap Detection</span>
                 <span class="badge badge-speed">Sub-200ms Response</span>
+                <span class="badge badge-disabled">No Transcription</span>
             </div>
         </header>
 
@@ -40,13 +42,14 @@
         <div class="control-panel">
             <div class="understanding-info">
                 <div class="info-card">
-                    <h3>🧠 How UNDERSTANDING-ONLY Mode Works</h3>
+                    <h3>🧠 How PURE UNDERSTANDING-ONLY Mode Works</h3>
                     <ul>
                         <li>Continuous audio recording with gap detection</li>
                         <li>0.3-second silence triggers AI processing</li>
                         <li>Conversational AI responses with context memory</li>
                         <li>Sub-200ms response time optimization</li>
                         <li>Natural speech boundaries using WebRTC VAD</li>
+                        <li><strong>NO transcription capability - Understanding only</strong></li>
                     </ul>
                 </div>
             </div>
@@ -58,14 +61,20 @@
             </div>
 
             <div class="instructions">
-                <h4>🎯 Quick Instructions:</h4>
+                <h4>🎯 PURE UNDERSTANDING-ONLY Instructions:</h4>
                 <ol>
                     <li><strong>Connect:</strong> Click "Connect to Understanding Service"</li>
                     <li><strong>Record:</strong> Click "Start Continuous Recording"</li>
                     <li><strong>Speak:</strong> Talk naturally - no need to hold buttons</li>
                     <li><strong>Pause:</strong> 0.3-second silence triggers AI response</li>
                     <li><strong>Converse:</strong> Continue natural conversation flow</li>
+                    <li><strong>Note:</strong> Only conversational AI responses - no text transcription</li>
                 </ol>
+            </div>
+
+            <div class="mode-warning">
+                <h4>⚠️ Important:</h4>
+                <p>This is a <strong>PURE UNDERSTANDING-ONLY</strong> implementation. Transcription functionality has been completely disabled. You will receive intelligent conversational AI responses to your speech, but no text transcription of what you said.</p>
             </div>
         </div>
 
@@ -93,16 +102,16 @@
 
         <div class="results-panel">
             <div class="results-header">
-                <h3>🧠 Understanding Results</h3>
+                <h3>🧠 Understanding Results (No Transcription)</h3>
                 <button id="clear-results" class="btn btn-small">Clear Results</button>
             </div>
             <div id="results-container" class="results-container">
-                <p class="no-results">No results yet. Connect and start recording for UNDERSTANDING-ONLY conversational AI.</p>
+                <p class="no-results">No results yet. Connect and start recording for PURE UNDERSTANDING-ONLY conversational AI.</p>
             </div>
         </div>
 
         <div class="features-panel">
-            <h3>🌟 UNDERSTANDING-ONLY Features</h3>
+            <h3>🌟 PURE UNDERSTANDING-ONLY Features</h3>
             <div class="features-grid">
                 <div class="feature-item">
                     <div class="feature-icon">🎯</div>
@@ -126,8 +135,18 @@
                 </div>
                 <div class="feature-item">
                     <div class="feature-icon">🧠</div>
-                    <div class="feature-title">Conversational AI</div>
-                    <div class="feature-desc">Natural responses to your speech, not just transcription</div>
+                    <div class="feature-title">Understanding Only</div>
+                    <div class="feature-desc">Natural conversational responses, no text transcription</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🚫</div>
+                    <div class="feature-title">No Transcription</div>
+                    <div class="feature-desc">Pure understanding mode - transcription completely disabled</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🛠️</div>
+                    <div class="feature-title">Flash Attention Fix</div>
+                    <div class="feature-desc">Compatibility fix applied for stable performance</div>
                 </div>
                 <div class="feature-item">
                     <div class="feature-icon">🌍</div>
@@ -147,7 +166,7 @@
         <div class="logs-panel">
             <h3>📋 Connection Logs</h3>
             <div id="logs-container" class="logs-container">
-                <p class="log-entry">Ready to connect to UNDERSTANDING-ONLY service...</p>
+                <p class="log-entry">Ready to connect to PURE UNDERSTANDING-ONLY service...</p>
             </div>
         </div>
     </div>
