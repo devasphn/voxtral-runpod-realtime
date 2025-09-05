@@ -1,11 +1,11 @@
-# UNDERSTANDING-ONLY SETTINGS - FIXED CONFIGURATION
+# PURE UNDERSTANDING-ONLY SETTINGS - NO TRANSCRIPTION
 import os
 from typing import Optional, List, Dict, Any
 from pydantic_settings import BaseSettings
 import torch
 
 class Settings(BaseSettings):
-    """UNDERSTANDING-ONLY Application settings - Optimized for Conversational AI"""
+    """PURE UNDERSTANDING-ONLY Application settings - Zero Transcription"""
     
     # Get current working directory dynamically
     WORK_DIR: str = os.getcwd()
@@ -15,14 +15,17 @@ class Settings(BaseSettings):
     DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
     TORCH_DTYPE: torch.dtype = torch.bfloat16
     
+    # CRITICAL: Disable Flash Attention to fix compatibility
+    USE_FLASH_ATTENTION: bool = False
+    ATTN_IMPLEMENTATION: str = "eager"  # Force eager attention
+    
     # Server Configuration - UNDERSTANDING-ONLY
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     HEALTH_PORT: int = 8005
     
-    # WebSocket Configuration - UNDERSTANDING-ONLY
-    WS_UNDERSTAND_PORT: int = 8766  # Single understanding endpoint
-    MAX_CONCURRENT_CONNECTIONS: int = 10  # Increased for understanding-only
+    # WebSocket Configuration - UNDERSTANDING-ONLY (Single endpoint)
+    MAX_CONCURRENT_CONNECTIONS: int = 10
     MAX_MESSAGE_SIZE: int = 10 * 1024 * 1024  # 10MB
     WEBSOCKET_TIMEOUT: int = 60  # seconds
     
@@ -41,7 +44,6 @@ class Settings(BaseSettings):
     
     # Performance Optimization - UNDERSTANDING-ONLY
     BATCH_SIZE: int = 1
-    USE_FLASH_ATTENTION: bool = True
     ENABLE_MEMORY_EFFICIENT_ATTENTION: bool = True
     OPTIMIZE_FOR_SPEED: bool = True
     
@@ -65,7 +67,6 @@ class Settings(BaseSettings):
     # RunPod Integration - UNDERSTANDING-ONLY
     RUNPOD_POD_ID: Optional[str] = os.getenv("RUNPOD_POD_ID")
     RUNPOD_PUBLIC_IP: Optional[str] = os.getenv("RUNPOD_PUBLIC_IP")
-    RUNPOD_TCP_PORT_8766: Optional[str] = os.getenv("RUNPOD_TCP_PORT_8766")
     
     # Security
     API_KEY: Optional[str] = os.getenv("API_KEY")
@@ -82,9 +83,9 @@ class Settings(BaseSettings):
     HEALTH_CHECK_TIMEOUT: int = 5  # seconds
     TRACK_RESPONSE_TIMES: bool = True
     
-    # UNDERSTANDING-ONLY: Feature Flags
-    UNDERSTANDING_ONLY: bool = True  # Always true for this mode
-    TRANSCRIPTION_DISABLED: bool = True  # Transcription completely disabled
+    # UNDERSTANDING-ONLY: Feature Flags (NO TRANSCRIPTION)
+    UNDERSTANDING_ONLY: bool = True  # Always true
+    TRANSCRIPTION_DISABLED: bool = True  # Completely disabled
     GAP_DETECTION_ENABLED: bool = True  # 0.3s gap detection enabled
     CONTEXT_AWARE_RESPONSES: bool = True  # Context-aware conversation
     
@@ -100,22 +101,13 @@ class Settings(BaseSettings):
         os.makedirs(self.TEMP_DIR, exist_ok=True)
         os.makedirs(os.path.dirname(self.LOG_FILE), exist_ok=True)
         
-        print(f"✅ UNDERSTANDING-ONLY Settings initialized with WORK_DIR: {self.WORK_DIR}")
+        print(f"✅ PURE UNDERSTANDING-ONLY Settings initialized with WORK_DIR: {self.WORK_DIR}")
         print(f"✅ Model cache: {self.MODEL_CACHE_DIR}")
         print(f"✅ Log file: {self.LOG_FILE}")
         print(f"✅ Gap detection: {self.GAP_THRESHOLD_MS}ms")
         print(f"✅ Target response: {self.TARGET_RESPONSE_MS}ms")
-    
-    @property
-    def websocket_urls(self) -> Dict[str, str]:
-        """Get WebSocket URLs for UNDERSTANDING-ONLY RunPod deployment"""
-        if self.RUNPOD_POD_ID:
-            return {
-                "understand": f"wss://{self.RUNPOD_POD_ID}-{self.WS_UNDERSTAND_PORT}.proxy.runpod.net/ws"
-            }
-        return {
-            "understand": f"ws://localhost:{self.WS_UNDERSTAND_PORT}/ws"
-        }
+        print(f"🚫 Flash Attention: DISABLED (compatibility fix)")
+        print(f"🧠 Mode: UNDERSTANDING-ONLY (no transcription)")
     
     def get_model_config(self) -> Dict[str, Any]:
         """Get UNDERSTANDING-ONLY model configuration"""
@@ -128,7 +120,9 @@ class Settings(BaseSettings):
             "understanding_top_p": self.UNDERSTANDING_TOP_P,
             "target_response_ms": self.TARGET_RESPONSE_MS,
             "optimize_for_speed": self.OPTIMIZE_FOR_SPEED,
-            "understanding_only": self.UNDERSTANDING_ONLY
+            "understanding_only": self.UNDERSTANDING_ONLY,
+            "use_flash_attention": self.USE_FLASH_ATTENTION,
+            "attn_implementation": self.ATTN_IMPLEMENTATION
         }
     
     def get_audio_config(self) -> Dict[str, Any]:
@@ -159,7 +153,8 @@ class Settings(BaseSettings):
             "use_flash_attention": self.USE_FLASH_ATTENTION,
             "enable_memory_efficient_attention": self.ENABLE_MEMORY_EFFICIENT_ATTENTION,
             "optimize_for_speed": self.OPTIMIZE_FOR_SPEED,
-            "track_response_times": self.TRACK_RESPONSE_TIMES
+            "track_response_times": self.TRACK_RESPONSE_TIMES,
+            "attn_implementation": self.ATTN_IMPLEMENTATION
         }
     
     def get_feature_flags(self) -> Dict[str, bool]:
