@@ -1,5 +1,5 @@
-// UNDERSTANDING-ONLY WEBSOCKET CLIENT - FIXED IMPLEMENTATION
-class VoxtralUnderstandingClient {
+// PURE UNDERSTANDING-ONLY WEBSOCKET CLIENT - NO TRANSCRIPTION
+class VoxtralPureUnderstandingClient {
     constructor() {
         this.websocket = null;
         this.isConnected = false;
@@ -7,7 +7,7 @@ class VoxtralUnderstandingClient {
         this.mediaRecorder = null;
         this.audioStream = null;
         
-        // UNDERSTANDING-ONLY: Enhanced audio configuration for gap detection
+        // PURE UNDERSTANDING-ONLY: Enhanced audio configuration for gap detection
         this.audioConfig = {
             sampleRate: 16000,
             channels: 1,
@@ -33,7 +33,8 @@ class VoxtralUnderstandingClient {
             responseTimesMs: [],
             averageResponseMs: 0,
             sub200msCount: 0,
-            totalResponses: 0
+            totalResponses: 0,
+            contextTurns: 0
         };
         
         this.initializeUI();
@@ -56,7 +57,8 @@ class VoxtralUnderstandingClient {
             logsContainer: document.getElementById('logs-container'),
             gapMetric: document.getElementById('gap-metric'),
             responseMetric: document.getElementById('response-metric'),
-            contextMetric: document.getElementById('context-metric')
+            contextMetric: document.getElementById('context-metric'),
+            speedMetric: document.getElementById('speed-metric')
         };
         
         // Bind event listeners
@@ -65,8 +67,22 @@ class VoxtralUnderstandingClient {
         this.elements.recordBtn.addEventListener('click', () => this.toggleRecording());
         this.elements.clearResults.addEventListener('click', () => this.clearResults());
         
-        // Update UI for understanding-only mode
+        // Update UI for pure understanding-only mode
         this.updateGapDetectionUI();
+        this.updateModeDisplay();
+    }
+    
+    updateModeDisplay() {
+        // Update page title and headers to reflect pure understanding-only
+        document.title = '🧠 Voxtral PURE UNDERSTANDING-ONLY - Real-Time Conversational AI';
+        
+        // Update any transcription references to understanding-only
+        const pageElements = document.querySelectorAll('[data-mode-update]');
+        pageElements.forEach(el => {
+            if (el.textContent.includes('transcription')) {
+                el.textContent = el.textContent.replace(/transcription/gi, 'understanding');
+            }
+        });
     }
     
     updateGapDetectionUI() {
@@ -84,6 +100,17 @@ class VoxtralUnderstandingClient {
         if (this.elements.responseMetric) {
             this.elements.responseMetric.textContent = `${this.performanceMetrics.averageResponseMs}ms`;
         }
+        
+        if (this.elements.contextMetric) {
+            this.elements.contextMetric.textContent = `${this.performanceMetrics.contextTurns}`;
+        }
+        
+        if (this.elements.speedMetric) {
+            const rate = this.performanceMetrics.totalResponses > 0 
+                ? Math.round((this.performanceMetrics.sub200msCount / this.performanceMetrics.totalResponses) * 100)
+                : 0;
+            this.elements.speedMetric.textContent = `${rate}%`;
+        }
     }
     
     async loadSystemInfo() {
@@ -96,10 +123,12 @@ class VoxtralUnderstandingClient {
             const info = await response.json();
             
             this.elements.systemInfo.innerHTML = `
-                <div><strong>Mode:</strong> <span class="understanding-highlight">UNDERSTANDING-ONLY</span></div>
+                <div><strong>Mode:</strong> <span class="understanding-highlight">PURE UNDERSTANDING-ONLY</span></div>
+                <div><strong>Transcription:</strong> <span class="danger-color">COMPLETELY DISABLED</span></div>
                 <div><strong>Model:</strong> ${info.model_name}</div>
                 <div><strong>Device:</strong> ${info.device}</div>
                 <div><strong>Parameters:</strong> ${info.model_size}</div>
+                <div><strong>Flash Attention:</strong> <span class="warning-color">${info.flash_attention_status}</span></div>
                 <div><strong>Gap Detection:</strong> <span class="gap-highlight">${info.gap_detection_ms}ms</span></div>
                 <div><strong>Target Response:</strong> <span class="speed-highlight">${info.target_response_ms}ms</span></div>
                 <div><strong>Languages:</strong> ${info.supported_languages.join(', ')}</div>
@@ -117,13 +146,13 @@ class VoxtralUnderstandingClient {
     getWebSocketURL() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
-        return `${protocol}//${host}/ws/understand`;  // UNDERSTANDING-ONLY endpoint
+        return `${protocol}//${host}/ws/understand`;  // PURE UNDERSTANDING-ONLY endpoint
     }
     
     async connect() {
         if (this.isConnected) return;
         
-        this.log('Connecting to UNDERSTANDING-ONLY service...', 'info');
+        this.log('Connecting to PURE UNDERSTANDING-ONLY service...', 'info');
         
         try {
             const wsUrl = this.getWebSocketURL();
@@ -135,7 +164,7 @@ class VoxtralUnderstandingClient {
                 this.currentRetries = 0;
                 this.updateStatus('connection', 'connected', 'connected');
                 this.updateButtons();
-                this.log('✅ Connected to UNDERSTANDING-ONLY service', 'success');
+                this.log('✅ Connected to PURE UNDERSTANDING-ONLY service', 'success');
             };
             
             this.websocket.onmessage = (event) => {
@@ -186,7 +215,7 @@ class VoxtralUnderstandingClient {
     disconnect() {
         if (!this.isConnected) return;
         
-        this.log('Disconnecting from UNDERSTANDING-ONLY service...', 'info');
+        this.log('Disconnecting from PURE UNDERSTANDING-ONLY service...', 'info');
         this.currentRetries = this.maxRetries; // Prevent auto-reconnect
         
         if (this.isRecording) {
@@ -209,12 +238,12 @@ class VoxtralUnderstandingClient {
     
     async startRecording() {
         if (!this.isConnected) {
-            this.log('Not connected to UNDERSTANDING-ONLY service', 'error');
+            this.log('Not connected to PURE UNDERSTANDING-ONLY service', 'error');
             return;
         }
         
         try {
-            this.log('Starting continuous recording for UNDERSTANDING-ONLY...', 'info');
+            this.log('Starting continuous recording for PURE UNDERSTANDING-ONLY...', 'info');
             
             // Request microphone access with enhanced constraints
             this.audioStream = await navigator.mediaDevices.getUserMedia({
@@ -250,7 +279,7 @@ class VoxtralUnderstandingClient {
                 mimeType: mimeType
             });
             
-            // UNDERSTANDING-ONLY: Handle continuous audio data
+            // PURE UNDERSTANDING-ONLY: Handle continuous audio data
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data && event.data.size > 0 && this.isConnected) {
                     this.sendAudioData(event.data);
@@ -262,13 +291,13 @@ class VoxtralUnderstandingClient {
                 this.stopRecording();
             };
             
-            // UNDERSTANDING-ONLY: Start continuous recording with small intervals
+            // PURE UNDERSTANDING-ONLY: Start continuous recording with small intervals
             this.mediaRecorder.start(100); // 100ms chunks for responsive gap detection
             
             this.isRecording = true;
             this.updateStatus('audio', 'recording', 'recording continuously');
             this.updateButtons();
-            this.log(`✅ Continuous recording started for UNDERSTANDING-ONLY (${mimeType})`, 'success');
+            this.log(`✅ Continuous recording started for PURE UNDERSTANDING-ONLY (${mimeType})`, 'success');
             
         } catch (error) {
             this.log('Failed to start recording: ' + error.message, 'error');
@@ -308,7 +337,7 @@ class VoxtralUnderstandingClient {
                 return;
             }
             
-            // UNDERSTANDING-ONLY: Send binary audio data directly
+            // PURE UNDERSTANDING-ONLY: Send binary audio data directly
             const arrayBuffer = await audioBlob.arrayBuffer();
             if (arrayBuffer.byteLength > 0) {
                 this.websocket.send(arrayBuffer);
@@ -321,6 +350,9 @@ class VoxtralUnderstandingClient {
     handleMessage(data) {
         if (data.type === 'connection') {
             this.log(data.message, 'info');
+            if (data.mode === 'PURE UNDERSTANDING-ONLY') {
+                this.log('✅ Confirmed: PURE UNDERSTANDING-ONLY mode active', 'success');
+            }
             return;
         }
         
@@ -330,13 +362,13 @@ class VoxtralUnderstandingClient {
             return;
         }
         
-        // UNDERSTANDING-ONLY: Handle audio feedback (gap detection status)
+        // PURE UNDERSTANDING-ONLY: Handle audio feedback (gap detection status)
         if (data.type === 'audio_feedback') {
             this.updateGapDetectionFeedback(data);
             return;
         }
         
-        // UNDERSTANDING-ONLY: Handle complete understanding results
+        // PURE UNDERSTANDING-ONLY: Handle complete understanding results
         if (data.type === 'understanding' && data.response) {
             this.handleUnderstandingResponse(data);
             return;
@@ -378,6 +410,7 @@ class VoxtralUnderstandingClient {
         const responseTime = data.response_time_ms || 0;
         this.performanceMetrics.responseTimesMs.push(responseTime);
         this.performanceMetrics.totalResponses++;
+        this.performanceMetrics.contextTurns = data.conversation?.turns || 0;
         
         if (responseTime < 200) {
             this.performanceMetrics.sub200msCount++;
@@ -390,6 +423,8 @@ class VoxtralUnderstandingClient {
         }
         
         // Update UI metrics
+        this.updateGapDetectionUI();
+        
         if (this.elements.responseMetric) {
             this.elements.responseMetric.textContent = `${responseTime.toFixed(0)}ms`;
             this.elements.responseMetric.className = responseTime < 200 ? 'metric-value speed-highlight' : 'metric-value';
@@ -408,10 +443,11 @@ class VoxtralUnderstandingClient {
             sub200ms: data.sub_200ms,
             audioDuration: data.audio_duration_ms,
             speechQuality: data.speech_quality,
-            gapDetected: data.gap_detected
+            gapDetected: data.gap_detected,
+            flashAttentionDisabled: data.flash_attention_disabled
         });
         
-        this.log(`✅ UNDERSTANDING response: ${responseTime.toFixed(0)}ms ${data.sub_200ms ? '⚡' : ''}`, 'success');
+        this.log(`✅ PURE UNDERSTANDING response: ${responseTime.toFixed(0)}ms ${data.sub_200ms ? '⚡' : ''} ${data.flash_attention_disabled ? '🚫⚡' : ''}`, 'success');
     }
     
     addResult(type, content, timestamp, metadata = null) {
@@ -437,13 +473,14 @@ class VoxtralUnderstandingClient {
                     ${metadata.audioDuration ? `Audio: ${metadata.audioDuration.toFixed(0)}ms` : ''}
                     ${metadata.speechQuality ? `Quality: ${(metadata.speechQuality * 100).toFixed(0)}%` : ''}
                     ${metadata.gapDetected ? '🎯 Gap Detected' : ''}
+                    ${metadata.flashAttentionDisabled ? '🚫⚡ Flash Attention Disabled' : ''}
                 </div>
             `;
         }
         
         resultElement.innerHTML = `
             <div class="result-header">
-                <span class="result-type ${typeClass}">UNDERSTANDING</span>
+                <span class="result-type ${typeClass}">PURE UNDERSTANDING</span>
                 <span class="result-time">${timestamp.toLocaleTimeString()}</span>
             </div>
             <div class="result-content">${content}</div>
@@ -461,7 +498,7 @@ class VoxtralUnderstandingClient {
     }
     
     clearResults() {
-        this.elements.resultsContainer.innerHTML = '<p class="no-results">No results yet. Connect and start recording for UNDERSTANDING-ONLY conversational AI.</p>';
+        this.elements.resultsContainer.innerHTML = '<p class="no-results">No results yet. Connect and start recording for PURE UNDERSTANDING-ONLY conversational AI.</p>';
         this.log('Results cleared', 'info');
     }
     
@@ -508,11 +545,12 @@ class VoxtralUnderstandingClient {
     }
 }
 
-// Initialize UNDERSTANDING-ONLY client when page loads
+// Initialize PURE UNDERSTANDING-ONLY client when page loads
 document.addEventListener('DOMContentLoaded', () => {
     try {
-        window.voxtralClient = new VoxtralUnderstandingClient();
+        window.voxtralClient = new VoxtralPureUnderstandingClient();
+        console.log('✅ PURE UNDERSTANDING-ONLY Voxtral client initialized');
     } catch (error) {
-        console.error('Failed to initialize UNDERSTANDING-ONLY Voxtral client:', error);
+        console.error('Failed to initialize PURE UNDERSTANDING-ONLY Voxtral client:', error);
     }
 });
