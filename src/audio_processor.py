@@ -1,4 +1,4 @@
-# UNDERSTANDING-ONLY AUDIO PROCESSOR - FIXED IMPORTS
+# PURE UNDERSTANDING-ONLY AUDIO PROCESSOR - NO TRANSCRIPTION
 import asyncio
 import logging
 import numpy as np
@@ -21,7 +21,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class UnderstandingAudioProcessor:
-    """UNDERSTANDING-ONLY: Audio processor with 0.3-second gap detection for conversational AI"""
+    """PURE UNDERSTANDING-ONLY: Audio processor with 0.3-second gap detection for conversational AI"""
     
     def __init__(
         self,
@@ -35,25 +35,25 @@ class UnderstandingAudioProcessor:
         self.gap_threshold_ms = gap_threshold_ms
         self.conversation_manager = conversation_manager
         
-        # UNDERSTANDING-ONLY: Audio buffering for gap detection
+        # PURE UNDERSTANDING-ONLY: Audio buffering for gap detection
         self.audio_segments = {}  # Per-connection audio segments
         self.speech_buffers = {}  # Per-connection speech buffers
         self.silence_counters = {}  # Per-connection silence tracking
         self.last_audio_time = {}  # Per-connection timing
         
-        # UNDERSTANDING-ONLY: Gap detection thresholds
+        # PURE UNDERSTANDING-ONLY: Gap detection thresholds
         self.min_speech_duration_ms = 500  # Minimum 0.5 seconds
         self.max_speech_duration_ms = 30000  # Maximum 30 seconds
         self.gap_threshold_samples = int(sample_rate * (gap_threshold_ms / 1000.0))
         
-        # UNDERSTANDING-ONLY: WebRTC VAD for accurate gap detection
+        # PURE UNDERSTANDING-ONLY: WebRTC VAD for accurate gap detection
         self.vad = None
         self.vad_enabled = False
         if VAD_AVAILABLE:
             try:
                 self.vad = webrtcvad.Vad(1)  # Moderate aggressiveness for conversation
                 self.vad_enabled = True
-                logger.info("✅ UNDERSTANDING-ONLY WebRTC VAD initialized (mode 1)")
+                logger.info("✅ PURE UNDERSTANDING-ONLY WebRTC VAD initialized (mode 1)")
             except Exception as e:
                 logger.warning(f"WebRTC VAD initialization failed: {e}")
         
@@ -63,13 +63,14 @@ class UnderstandingAudioProcessor:
         self.gaps_detected = 0
         self.processing_times = collections.deque(maxlen=50)
         
-        # UNDERSTANDING-ONLY: ThreadPoolExecutor for processing
-        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="UnderstandingAudio")
+        # PURE UNDERSTANDING-ONLY: ThreadPoolExecutor for processing
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="PureUnderstandingAudio")
         
-        logger.info(f"✅ UNDERSTANDING-ONLY AudioProcessor: {sample_rate}Hz, gap: {gap_threshold_ms}ms, VAD: {self.vad_enabled}")
+        logger.info(f"✅ PURE UNDERSTANDING-ONLY AudioProcessor: {sample_rate}Hz, gap: {gap_threshold_ms}ms, VAD: {self.vad_enabled}")
+        logger.info("🚫 Transcription functionality: COMPLETELY DISABLED")
     
     async def process_audio_understanding(self, audio_data: bytes, websocket=None) -> Optional[Dict[str, Any]]:
-        """UNDERSTANDING-ONLY: Process audio with gap detection for conversational AI"""
+        """PURE UNDERSTANDING-ONLY: Process audio with gap detection for conversational AI"""
         start_time = time.time()
         
         try:
@@ -105,10 +106,10 @@ class UnderstandingAudioProcessor:
             if speech_detected:
                 self.speech_buffers[conn_id].append(time.time())
                 self.silence_counters[conn_id] = 0
-                logger.debug(f"UNDERSTANDING-ONLY speech detected: {segment_duration_ms:.0f}ms")
+                logger.debug(f"PURE UNDERSTANDING-ONLY speech detected: {segment_duration_ms:.0f}ms")
             else:
                 self.silence_counters[conn_id] += 1
-                logger.debug(f"UNDERSTANDING-ONLY silence: counter={self.silence_counters[conn_id]}")
+                logger.debug(f"PURE UNDERSTANDING-ONLY silence: counter={self.silence_counters[conn_id]}")
             
             # Calculate durations
             total_audio_ms = len(self.audio_segments[conn_id]) / 2 / self.sample_rate * 1000
@@ -122,9 +123,11 @@ class UnderstandingAudioProcessor:
                     "segment_duration_ms": segment_duration_ms,
                     "total_duration_ms": total_audio_ms,
                     "silence_duration_ms": silence_duration_ms,
+                    "remaining_to_gap_ms": max(0, self.gap_threshold_ms - silence_duration_ms),
                     "gap_will_trigger_at_ms": self.gap_threshold_ms,
                     "speech_detected": speech_detected,
-                    "understanding_only": True
+                    "understanding_only": True,
+                    "transcription_disabled": True
                 }
             
             # Check for gap detection (0.3 second silence)
@@ -134,7 +137,7 @@ class UnderstandingAudioProcessor:
             )
             
             if gap_detected:
-                logger.info(f"🎯 UNDERSTANDING-ONLY gap detected: {silence_duration_ms:.0f}ms silence, {total_audio_ms:.0f}ms total")
+                logger.info(f"🎯 PURE UNDERSTANDING-ONLY gap detected: {silence_duration_ms:.0f}ms silence, {total_audio_ms:.0f}ms total")
                 
                 # Process complete speech segment
                 result = await self._process_complete_speech_segment(conn_id)
@@ -156,15 +159,16 @@ class UnderstandingAudioProcessor:
                     "segment_duration_ms": segment_duration_ms,
                     "total_duration_ms": total_audio_ms,
                     "silence_duration_ms": silence_duration_ms,
-                    "gap_will_trigger_at_ms": self.gap_threshold_ms,
                     "remaining_to_gap_ms": max(0, self.gap_threshold_ms - silence_duration_ms),
+                    "gap_will_trigger_at_ms": self.gap_threshold_ms,
                     "speech_detected": speech_detected,
-                    "understanding_only": True
+                    "understanding_only": True,
+                    "transcription_disabled": True
                 }
                 
         except Exception as e:
-            logger.error(f"UNDERSTANDING-ONLY audio processing error: {e}")
-            return {"error": f"UNDERSTANDING-ONLY processing failed: {str(e)}"}
+            logger.error(f"PURE UNDERSTANDING-ONLY audio processing error: {e}")
+            return {"error": f"PURE UNDERSTANDING-ONLY processing failed: {str(e)}"}
     
     async def _convert_to_pcm(self, audio_data: bytes) -> Optional[bytes]:
         """Convert audio data to PCM format"""
@@ -265,7 +269,7 @@ class UnderstandingAudioProcessor:
             if speech_quality > 0.3:
                 self.speech_segments_detected += 1
             
-            logger.info(f"✅ UNDERSTANDING-ONLY segment complete: {duration_ms:.0f}ms, quality: {speech_quality:.3f}")
+            logger.info(f"✅ PURE UNDERSTANDING-ONLY segment complete: {duration_ms:.0f}ms, quality: {speech_quality:.3f}")
             
             return {
                 "speech_complete": True,
@@ -276,6 +280,7 @@ class UnderstandingAudioProcessor:
                 "channels": self.channels,
                 "gap_detected": True,
                 "understanding_only": True,
+                "transcription_disabled": True,
                 "processed_at": time.time()
             }
             
@@ -349,7 +354,7 @@ class UnderstandingAudioProcessor:
         self.silence_counters.pop(conn_id, None)
         self.last_audio_time.pop(conn_id, None)
         
-        logger.info(f"🧹 UNDERSTANDING-ONLY audio cleanup for connection: {conn_id}")
+        logger.info(f"🧹 PURE UNDERSTANDING-ONLY audio cleanup for connection: {conn_id}")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get processing statistics"""
@@ -363,7 +368,8 @@ class UnderstandingAudioProcessor:
         )
         
         return {
-            "understanding_only": True,
+            "mode": "PURE UNDERSTANDING-ONLY",
+            "transcription_disabled": True,
             "gap_threshold_ms": self.gap_threshold_ms,
             "segments_processed": self.segments_processed,
             "speech_segments_detected": self.speech_segments_detected,
@@ -390,11 +396,11 @@ class UnderstandingAudioProcessor:
         self.gaps_detected = 0
         self.processing_times.clear()
         
-        logger.info("✅ UNDERSTANDING-ONLY audio processor reset")
+        logger.info("✅ PURE UNDERSTANDING-ONLY audio processor reset")
     
     async def cleanup(self):
-        """UNDERSTANDING-ONLY: Enhanced cleanup"""
-        logger.info("🧹 Starting UNDERSTANDING-ONLY audio processor cleanup...")
+        """PURE UNDERSTANDING-ONLY: Enhanced cleanup"""
+        logger.info("🧹 Starting PURE UNDERSTANDING-ONLY audio processor cleanup...")
         
         # Reset all buffers
         self.reset()
@@ -403,9 +409,9 @@ class UnderstandingAudioProcessor:
         try:
             self.executor.shutdown(wait=True)
         except Exception as e:
-            logger.error(f"UNDERSTANDING-ONLY executor shutdown error: {e}")
+            logger.error(f"PURE UNDERSTANDING-ONLY executor shutdown error: {e}")
         
-        logger.info("✅ UNDERSTANDING-ONLY audio processor fully cleaned up")
+        logger.info("✅ PURE UNDERSTANDING-ONLY audio processor fully cleaned up")
 
 # Backward compatibility alias
 AudioProcessor = UnderstandingAudioProcessor
