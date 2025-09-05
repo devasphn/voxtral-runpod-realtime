@@ -31,4 +31,4 @@ accelerate
 ffmpeg-python>=0.2.0
 flash-attn
 subprocess32>=3.5.4 
-python_version<3.0
+
