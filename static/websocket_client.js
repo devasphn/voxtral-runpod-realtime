@@ -1,25 +1,29 @@
-// ULTIMATE WEBSOCKET CLIENT - FIXED FOR REAL-TIME STREAMING
-class UltimateVoxtralClient {
+// UNDERSTANDING-ONLY WEBSOCKET CLIENT - OPTIMIZED FOR 0.3S GAP DETECTION
+class VoxtralUnderstandingClient {
     constructor() {
         this.websocket = null;
         this.isConnected = false;
         this.isRecording = false;
         this.mediaRecorder = null;
         this.audioStream = null;
-        this.mode = 'realtime';
         
-        // Real-time configuration
+        // UNDERSTANDING-ONLY configuration
         this.audioConfig = {
             sampleRate: 16000,
             channels: 1,
-            mimeType: 'audio/webm;codecs=opus',
-            continuous: true
+            mimeType: 'audio/webm;codecs=opus'
         };
         
-        // Performance tracking
-        this.responseCount = 0;
-        this.totalLatency = 0;
-        this.vadTriggers = 0;
+        // Connection retry configuration
+        this.maxRetries = 3;
+        this.retryDelay = 2000;
+        this.currentRetries = 0;
+        
+        // Gap detection settings
+        this.gapThresholdMs = 300;  // 0.3 second gap detection
+        this.lastAudioTime = 0;
+        this.audioChunkBuffer = [];
+        this.processingResponse = false;
         
         this.initializeUI();
         this.loadSystemInfo();
@@ -31,14 +35,27 @@ class UltimateVoxtralClient {
             connectBtn: document.getElementById('connect-btn'),
             recordBtn: document.getElementById('record-btn'),
             disconnectBtn: document.getElementById('disconnect-btn'),
-            modeSelect: document.getElementById('mode-select'),
             connectionStatus: document.getElementById('connection-status'),
+            modelStatus: document.getElementById('model-status'),
             audioStatus: document.getElementById('audio-status'),
-            performanceStats: document.getElementById('performance-stats'),
             resultsContainer: document.getElementById('results-container'),
             clearResults: document.getElementById('clear-results'),
-            logsContainer: document.getElementById('logs-container')
+            systemInfo: document.getElementById('system-info'),
+            logsContainer: document.getElementById('logs-container'),
+            gapStatus: document.getElementById('gap-status') || this.createGapStatusElement()
         };
+        
+        // Hide service selector (UNDERSTANDING-ONLY)
+        const serviceSelector = document.querySelector('.service-selector');
+        if (serviceSelector) {
+            serviceSelector.style.display = 'none';
+        }
+        
+        // Hide query section (not needed for understanding-only)
+        const querySection = document.getElementById('query-section');
+        if (querySection) {
+            querySection.style.display = 'none';
+        }
         
         // Bind event listeners
         this.elements.connectBtn.addEventListener('click', () => this.connect());
@@ -46,49 +63,101 @@ class UltimateVoxtralClient {
         this.elements.recordBtn.addEventListener('click', () => this.toggleRecording());
         this.elements.clearResults.addEventListener('click', () => this.clearResults());
         
-        // Create performance stats display
-        if (!this.elements.performanceStats) {
-            const statsDiv = document.createElement('div');
-            statsDiv.id = 'performance-stats';
-            statsDiv.className = 'performance-stats';
-            document.querySelector('.status-panel').appendChild(statsDiv);
-            this.elements.performanceStats = statsDiv;
+        // Add understanding-only indicators
+        this.addUnderstandingOnlyIndicators();
+    }
+    
+    createGapStatusElement() {
+        // Create gap detection status element
+        const statusPanel = document.querySelector('.status-panel');
+        if (statusPanel) {
+            const gapItem = document.createElement('div');
+            gapItem.className = 'status-item';
+            gapItem.innerHTML = `
+                <span class="label">Gap Detection:</span>
+                <span id="gap-status" class="status">300ms</span>
+            `;
+            statusPanel.appendChild(gapItem);
+            return gapItem.querySelector('#gap-status');
+        }
+        return null;
+    }
+    
+    addUnderstandingOnlyIndicators() {
+        // Update page title and description
+        const header = document.querySelector('header h1');
+        if (header) {
+            header.textContent = '🧠 Voxtral Mini 3B - UNDERSTANDING-ONLY';
+        }
+        
+        const description = document.querySelector('header p');
+        if (description) {
+            description.textContent = 'Real-time conversational AI with 0.3-second gap detection';
+        }
+        
+        // Add understanding-only badge
+        const controlPanel = document.querySelector('.control-panel');
+        if (controlPanel) {
+            const badge = document.createElement('div');
+            badge.className = 'understanding-badge';
+            badge.innerHTML = `
+                <div style="background: #059669; color: white; padding: 8px 16px; border-radius: 20px; margin-bottom: 20px; text-align: center; font-weight: 600;">
+                    ✅ UNDERSTANDING-ONLY MODE | 🎯 0.3s Gap Detection | ⚡ Sub-200ms Response
+                </div>
+            `;
+            controlPanel.insertBefore(badge, controlPanel.firstChild);
         }
     }
     
     async loadSystemInfo() {
         try {
-            const response = await fetch('/health');
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const response = await fetch('/model/info');
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
             
             const info = await response.json();
-            this.updatePerformanceDisplay(info);
             
+            this.elements.systemInfo.innerHTML = `
+                <div><strong>Model:</strong> ${info.model_name}</div>
+                <div><strong>Device:</strong> ${info.device}</div>
+                <div><strong>Parameters:</strong> ${info.model_size}</div>
+                <div><strong>Mode:</strong> UNDERSTANDING-ONLY</div>
+                <div><strong>Gap Detection:</strong> ${this.gapThresholdMs}ms</div>
+                <div><strong>Target Response:</strong> Sub-200ms</div>
+                <div><strong>Languages:</strong> ${info.supported_languages.join(', ')}</div>
+            `;
+            
+            this.updateStatus('model', 'loaded', 'loaded');
         } catch (error) {
             this.log('Failed to load system info: ' + error.message, 'error');
+            this.elements.systemInfo.innerHTML = '<div>❌ Failed to load system information</div>';
+            this.updateStatus('model', 'error', 'error');
         }
     }
     
     getWebSocketURL() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
-        return `${protocol}//${host}/ws/realtime`;
+        return `${protocol}//${host}/ws/understand`;  // UNDERSTANDING-ONLY endpoint
     }
     
     async connect() {
         if (this.isConnected) return;
         
-        this.log('Connecting to ULTIMATE real-time service...', 'info');
+        this.log('Connecting to UNDERSTANDING-ONLY service...', 'info');
         
         try {
             const wsUrl = this.getWebSocketURL();
             this.websocket = new WebSocket(wsUrl);
             
+            // Set up event handlers
             this.websocket.onopen = () => {
                 this.isConnected = true;
-                this.updateStatus('connection', 'connected');
+                this.currentRetries = 0;
+                this.updateStatus('connection', 'connected', 'connected');
                 this.updateButtons();
-                this.log('✅ Connected to ULTIMATE real-time service', 'success');
+                this.log('✅ Connected to UNDERSTANDING-ONLY service', 'success');
             };
             
             this.websocket.onmessage = (event) => {
@@ -107,13 +176,22 @@ class UltimateVoxtralClient {
             
             this.websocket.onclose = (event) => {
                 this.isConnected = false;
-                this.updateStatus('connection', 'disconnected');
+                this.updateStatus('connection', 'disconnected', 'disconnected');
                 this.updateButtons();
                 
                 if (event.wasClean) {
                     this.log('Connection closed cleanly', 'info');
                 } else {
                     this.log(`Connection lost (code: ${event.code})`, 'warning');
+                    
+                    // Auto-reconnect logic
+                    if (this.currentRetries < this.maxRetries) {
+                        this.currentRetries++;
+                        this.log(`Attempting reconnection (${this.currentRetries}/${this.maxRetries})...`, 'info');
+                        setTimeout(() => this.connect(), this.retryDelay);
+                    } else {
+                        this.log('Max reconnection attempts reached', 'error');
+                    }
                 }
                 
                 if (this.isRecording) {
@@ -123,7 +201,7 @@ class UltimateVoxtralClient {
             
         } catch (error) {
             this.log('Connection failed: ' + error.message, 'error');
-            this.updateStatus('connection', 'error');
+            this.updateStatus('connection', 'error', 'error');
         }
     }
     
@@ -131,6 +209,7 @@ class UltimateVoxtralClient {
         if (!this.isConnected) return;
         
         this.log('Disconnecting...', 'info');
+        this.currentRetries = this.maxRetries; // Prevent auto-reconnect
         
         if (this.isRecording) {
             this.stopRecording();
@@ -152,22 +231,21 @@ class UltimateVoxtralClient {
     
     async startRecording() {
         if (!this.isConnected) {
-            this.log('Not connected to service', 'error');
+            this.log('Not connected to UNDERSTANDING-ONLY service', 'error');
             return;
         }
         
         try {
-            this.log('Starting ULTIMATE continuous recording...', 'info');
+            this.log('Starting continuous audio recording for UNDERSTANDING-ONLY...', 'info');
             
-            // Request high-quality microphone access
+            // Request microphone access
             this.audioStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     sampleRate: this.audioConfig.sampleRate,
                     channelCount: this.audioConfig.channels,
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true,
-                    latency: 0.01 // Request low latency
+                    autoGainControl: true
                 }
             });
             
@@ -189,16 +267,15 @@ class UltimateVoxtralClient {
                 }
             }
             
-            // Create MediaRecorder for continuous streaming
+            // Create media recorder for continuous streaming
             this.mediaRecorder = new MediaRecorder(this.audioStream, {
-                mimeType: mimeType,
-                audioBitsPerSecond: 32000 // Higher quality for better recognition
+                mimeType: mimeType
             });
             
-            // Handle continuous audio data
+            // Handle audio data - UNDERSTANDING-ONLY processing
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data && event.data.size > 0 && this.isConnected) {
-                    this.sendAudioData(event.data);
+                    this.processAudioChunk(event.data);
                 }
             };
             
@@ -207,17 +284,37 @@ class UltimateVoxtralClient {
                 this.stopRecording();
             };
             
-            // Start continuous recording with small intervals for real-time processing
-            this.mediaRecorder.start(100); // 100ms intervals for smooth streaming
+            // Start continuous recording with small intervals for responsiveness
+            this.mediaRecorder.start(100); // 100ms chunks for continuous processing
             
             this.isRecording = true;
-            this.updateStatus('audio', 'recording');
+            this.lastAudioTime = Date.now();
+            this.updateStatus('audio', 'recording', 'recording');
             this.updateButtons();
-            this.log(`✅ ULTIMATE continuous recording started (${mimeType})`, 'success');
+            this.log(`Continuous recording started for UNDERSTANDING-ONLY (${mimeType})`, 'success');
             
         } catch (error) {
             this.log('Failed to start recording: ' + error.message, 'error');
-            this.updateStatus('audio', 'error');
+            this.updateStatus('audio', 'error', 'error');
+        }
+    }
+    
+    async processAudioChunk(audioBlob) {
+        try {
+            if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+                return;
+            }
+            
+            this.lastAudioTime = Date.now();
+            
+            // Convert to ArrayBuffer and send directly as binary
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            if (arrayBuffer.byteLength > 0) {
+                this.websocket.send(arrayBuffer);
+            }
+            
+        } catch (error) {
+            this.log('Failed to process audio chunk: ' + error.message, 'error');
         }
     }
     
@@ -238,37 +335,21 @@ class UltimateVoxtralClient {
             
             this.mediaRecorder = null;
             this.isRecording = false;
-            this.updateStatus('audio', 'stopped');
+            this.processingResponse = false;
+            this.audioChunkBuffer = [];
+            
+            this.updateStatus('audio', 'stopped', 'not recording');
             this.updateButtons();
-            this.log('✅ Recording stopped', 'info');
+            this.log('Recording stopped', 'info');
             
         } catch (error) {
             this.log('Error stopping recording: ' + error.message, 'error');
         }
     }
     
-    async sendAudioData(audioBlob) {
-        try {
-            if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
-                return;
-            }
-            
-            // Send binary audio data directly for VAD processing
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            if (arrayBuffer.byteLength > 0) {
-                this.websocket.send(arrayBuffer);
-            }
-            
-        } catch (error) {
-            this.log('Failed to send audio data: ' + error.message, 'error');
-        }
-    }
-    
     handleMessage(data) {
-        const startTime = performance.now();
-        
         if (data.type === 'connection') {
-            this.log(data.status + ': ' + (data.continuous_recording ? 'Continuous mode enabled' : ''), 'info');
+            this.log(data.message || 'Connected to UNDERSTANDING-ONLY service', 'info');
             return;
         }
         
@@ -278,54 +359,72 @@ class UltimateVoxtralClient {
             return;
         }
         
-        // Handle real-time responses
-        if (data.type === 'transcription' && data.text) {
-            const latency = data.processing_time_ms || 0;
-            this.responseCount++;
-            this.totalLatency += latency;
+        // Handle intermediate feedback
+        if (data.type === 'audio_received' || data.audio_received) {
+            this.updateAudioFeedback(data);
+            return;
+        }
+        
+        // Handle complete understanding response
+        if (data.type === 'understanding' && (data.response || data.transcription)) {
+            this.processingResponse = false;
             
-            if (data.vad_triggered) {
-                this.vadTriggers++;
+            const responseTime = data.response_time_ms || 0;
+            const gapDetected = data.gap_detected || false;
+            const subOptimal = responseTime < 200;
+            
+            // Format the result
+            let resultText = '';
+            if (data.transcription) {
+                resultText += `🎤 "${data.transcription}"\n\n`;
+            }
+            if (data.response) {
+                resultText += `🧠 ${data.response}`;
             }
             
-            // Add result with performance info
-            const resultText = `${data.text} (${latency.toFixed(1)}ms${data.vad_triggered ? ', VAD' : ''})`;
-            this.addResult('transcription', resultText, new Date());
+            // Add timing information
+            if (responseTime > 0) {
+                resultText += `\n\n⏱️ Response: ${responseTime}ms`;
+                if (subOptimal) {
+                    resultText += ' ⚡';
+                }
+            }
             
-            this.log(`✅ Real-time transcription: ${latency.toFixed(1)}ms - "${data.text}"`, 
-                    latency < 200 ? 'success' : 'warning');
+            if (gapDetected) {
+                resultText += ' 🎯 Gap detected';
+            }
             
-            this.updatePerformanceStats();
-        } 
-        else if (data.type === 'understanding' && data.response) {
-            const latency = data.processing_time_ms || 0;
-            this.addResult('understanding', `${data.response} (${latency.toFixed(1)}ms)`, new Date());
-            this.log(`✅ Understanding response: ${latency.toFixed(1)}ms`, 'success');
-        }
-        else if (data.type === 'status') {
-            this.updatePerformanceDisplay(data);
+            this.addResult('understanding', resultText, new Date());
+            this.log(`✅ UNDERSTANDING response received (${responseTime}ms)${gapDetected ? ' - Gap detected' : ''}`, 'success');
         }
     }
     
-    updatePerformanceStats() {
-        const avgLatency = this.responseCount > 0 ? this.totalLatency / this.responseCount : 0;
-        const vadRate = this.responseCount > 0 ? this.vadTriggers / this.responseCount : 0;
-        
-        if (this.elements.performanceStats) {
-            this.elements.performanceStats.innerHTML = `
-                <div><strong>Performance:</strong></div>
-                <div>Responses: ${this.responseCount}</div>
-                <div>Avg Latency: ${avgLatency.toFixed(1)}ms</div>
-                <div>VAD Triggers: ${this.vadTriggers}</div>
-                <div>Target Met: ${avgLatency < 200 ? '✅' : '❌'}</div>
-            `;
-        }
-    }
-    
-    updatePerformanceDisplay(data) {
-        if (data.vad_stats) {
-            const vadStats = data.vad_stats;
-            this.log(`VAD Stats: ${vadStats.active_connections} connections, ${vadStats.total_speech_segments} segments`, 'info');
+    updateAudioFeedback(data) {
+        // Update gap detection status
+        if (this.elements.gapStatus) {
+            const segmentDuration = data.segment_duration_ms || 0;
+            const silenceDuration = data.silence_duration_ms || 0;
+            const gapTrigger = data.gap_will_trigger_at_ms || this.gapThresholdMs;
+            
+            let statusText = `${gapTrigger}ms`;
+            let statusClass = 'status';
+            
+            if (segmentDuration > 0) {
+                statusText = `Speaking: ${segmentDuration.toFixed(0)}ms`;
+                statusClass = 'status recording';
+            } else if (silenceDuration > 0) {
+                const remaining = gapTrigger - silenceDuration;
+                if (remaining > 0) {
+                    statusText = `Gap: ${remaining.toFixed(0)}ms remaining`;
+                    statusClass = 'status recording';
+                } else {
+                    statusText = 'Processing...';
+                    statusClass = 'status connected';
+                }
+            }
+            
+            this.elements.gapStatus.textContent = statusText;
+            this.elements.gapStatus.className = statusClass;
         }
     }
     
@@ -340,8 +439,8 @@ class UltimateVoxtralClient {
         const resultElement = document.createElement('div');
         resultElement.className = 'result-item';
         
-        let typeClass = 'result-transcription';
-        if (type === 'understanding') typeClass = 'result-understanding';
+        // Color coding
+        let typeClass = 'result-understanding';
         if (type === 'error') typeClass = 'result-error';
         
         resultElement.innerHTML = `
@@ -349,33 +448,29 @@ class UltimateVoxtralClient {
                 <span class="result-type ${typeClass}">${type}</span>
                 <span class="result-time">${timestamp.toLocaleTimeString()}</span>
             </div>
-            <div class="result-content">${content}</div>
+            <div class="result-content">${content.replace(/\n/g, '<br>')}</div>
         `;
         
         // Add to container (newest first)
         this.elements.resultsContainer.insertBefore(resultElement, this.elements.resultsContainer.firstChild);
         
-        // Keep only last 20 results
+        // Keep only last 15 results
         const results = this.elements.resultsContainer.querySelectorAll('.result-item');
-        if (results.length > 20) {
+        if (results.length > 15) {
             results[results.length - 1].remove();
         }
     }
     
     clearResults() {
         this.elements.resultsContainer.innerHTML = '<p class="no-results">No results yet. Connect and start recording to begin.</p>';
-        this.responseCount = 0;
-        this.totalLatency = 0;
-        this.vadTriggers = 0;
-        this.updatePerformanceStats();
         this.log('Results cleared', 'info');
     }
     
-    updateStatus(type, className, text = null) {
+    updateStatus(type, className, text) {
         const element = this.elements[type + 'Status'];
         if (element) {
             element.className = 'status ' + className;
-            if (text) element.textContent = text;
+            element.textContent = text;
         }
     }
     
@@ -407,15 +502,18 @@ class UltimateVoxtralClient {
             logs[logs.length - 1].remove();
         }
         
+        // Auto scroll to latest
+        this.elements.logsContainer.scrollTop = 0;
+        
         console.log(`[${level.toUpperCase()}] ${message}`);
     }
 }
 
-// Initialize client when page loads
+// Initialize UNDERSTANDING-ONLY client when page loads
 document.addEventListener('DOMContentLoaded', () => {
     try {
-        window.ultimateVoxtralClient = new UltimateVoxtralClient();
+        window.voxtralClient = new VoxtralUnderstandingClient();
     } catch (error) {
-        console.error('Failed to initialize ULTIMATE Voxtral client:', error);
+        console.error('Failed to initialize Voxtral UNDERSTANDING-ONLY client:', error);
     }
 });
