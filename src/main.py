@@ -1,4 +1,4 @@
-# FIXED: PURE UNDERSTANDING-ONLY MAIN APPLICATION WITH CORRECT INTEGRATIONS
+# FIXED: PURE UNDERSTANDING-ONLY MAIN APPLICATION WITH CORRECT IMPORTS
 import asyncio
 import logging
 import signal
@@ -21,9 +21,9 @@ from src.websocket_handler import WebSocketManager
 from src.conversation_manager import ConversationManager
 from src.utils import get_system_info
 
-# FIXED: Import the corrected components
-from model_loader_fixed import VoxtralUnderstandingManager
-from audio_processor_fixed import UnderstandingAudioProcessor
+# FIXED: Import the corrected components with proper imports
+from src.model_loader import VoxtralUnderstandingManager
+from src.audio_processor import UnderstandingAudioProcessor
 
 # Initialize logging
 setup_logging()
