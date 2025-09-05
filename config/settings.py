@@ -4,45 +4,46 @@ from pydantic_settings import BaseSettings
 import torch
 
 class Settings(BaseSettings):
-    """Application settings - RunPod Compatible"""
+    """UNDERSTANDING-ONLY Application settings - RunPod Compatible"""
     
     # Get current working directory dynamically
     WORK_DIR: str = os.getcwd()
     
-    # Model Configuration
+    # Model Configuration - UNDERSTANDING-ONLY
     MODEL_NAME: str = "mistralai/Voxtral-Mini-3B-2507"
     DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
     TORCH_DTYPE: torch.dtype = torch.bfloat16
     
-    # Server Configuration  
+    # Server Configuration - UNDERSTANDING-ONLY
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    HEALTH_PORT: int = 8005  # CORRECTED: Standardized port
+    HEALTH_PORT: int = 8005
     
-    # WebSocket Configuration
-    WS_TRANSCRIBE_PORT: int = 8765
-    WS_UNDERSTAND_PORT: int = 8766
-    MAX_CONCURRENT_CONNECTIONS: int = 6
-    MAX_MESSAGE_SIZE: int = 10 * 1024 * 1024  # 10MB
-    WEBSOCKET_TIMEOUT: int = 60  # seconds
+    # WebSocket Configuration - UNDERSTANDING-ONLY
+    WS_UNDERSTAND_PORT: int = 8766  # Only understanding port needed
+    MAX_CONCURRENT_CONNECTIONS: int = 10  # Increased for understanding-only
+    MAX_MESSAGE_SIZE: int = 20 * 1024 * 1024  # 20MB for longer audio segments
+    WEBSOCKET_TIMEOUT: int = 120  # Longer timeout for understanding processing
     
-    # Audio Processing
+    # Audio Processing - UNDERSTANDING-ONLY with Gap Detection
     AUDIO_SAMPLE_RATE: int = 16000
     AUDIO_CHANNELS: int = 1
-    CHUNK_DURATION_MS: int = 30
-    VAD_MODE: int = 3  # Aggressive voice activity detection
-    MAX_AUDIO_LENGTH: int = 30 * 60  # 30 minutes in seconds
+    GAP_THRESHOLD_MS: int = 300  # 0.3 second gap detection
+    MIN_SPEECH_DURATION_MS: int = 500  # Minimum 0.5 seconds
+    MAX_SPEECH_DURATION_MS: int = 30000  # Maximum 30 seconds
+    VAD_MODE: int = 1  # Moderate aggressiveness for gap detection
     
-    # Model Generation
-    MAX_NEW_TOKENS: int = 500
-    TRANSCRIPTION_TEMPERATURE: float = 0.0  # Deterministic
-    UNDERSTANDING_TEMPERATURE: float = 0.2
-    UNDERSTANDING_TOP_P: float = 0.95
+    # Model Generation - UNDERSTANDING-ONLY
+    UNDERSTANDING_TEMPERATURE: float = 0.3  # Creative but controlled
+    UNDERSTANDING_TOP_P: float = 0.9  # Focused generation
+    MAX_NEW_TOKENS: int = 200  # Shorter for faster response
+    USE_CACHE: bool = True  # Enable caching for speed
     
-    # Performance
-    BATCH_SIZE: int = 1
-    USE_FLASH_ATTENTION: bool = True
+    # Performance Optimization - Sub-200ms Target
+    TARGET_RESPONSE_MS: int = 200  # Sub-200ms response target
+    ENABLE_FLASH_ATTENTION: bool = True
     ENABLE_MEMORY_EFFICIENT_ATTENTION: bool = True
+    OPTIMIZE_FOR_SPEED: bool = True
     
     # Logging
     LOG_LEVEL: str = "INFO"
@@ -51,7 +52,7 @@ class Settings(BaseSettings):
     # Storage - Dynamic paths based on working directory
     @property
     def LOG_FILE(self) -> str:
-        return os.path.join(self.WORK_DIR, "logs", "voxtral.log")
+        return os.path.join(self.WORK_DIR, "logs", "voxtral-understanding.log")
     
     @property 
     def MODEL_CACHE_DIR(self) -> str:
@@ -64,7 +65,6 @@ class Settings(BaseSettings):
     # RunPod Integration
     RUNPOD_POD_ID: Optional[str] = os.getenv("RUNPOD_POD_ID")
     RUNPOD_PUBLIC_IP: Optional[str] = os.getenv("RUNPOD_PUBLIC_IP")
-    RUNPOD_TCP_PORT_8765: Optional[str] = os.getenv("RUNPOD_TCP_PORT_8765")
     RUNPOD_TCP_PORT_8766: Optional[str] = os.getenv("RUNPOD_TCP_PORT_8766")
     
     # Security
@@ -88,41 +88,58 @@ class Settings(BaseSettings):
         os.makedirs(self.TEMP_DIR, exist_ok=True)
         os.makedirs(os.path.dirname(self.LOG_FILE), exist_ok=True)
         
-        print(f"✅ Settings initialized with WORK_DIR: {self.WORK_DIR}")
+        print(f"✅ UNDERSTANDING-ONLY Settings initialized with WORK_DIR: {self.WORK_DIR}")
         print(f"✅ Model cache: {self.MODEL_CACHE_DIR}")
         print(f"✅ Log file: {self.LOG_FILE}")
+        print(f"✅ Gap detection: {self.GAP_THRESHOLD_MS}ms")
+        print(f"✅ Target response: {self.TARGET_RESPONSE_MS}ms")
     
     @property
     def websocket_urls(self) -> Dict[str, str]:
-        """Get WebSocket URLs for RunPod"""
+        """Get WebSocket URLs for RunPod - UNDERSTANDING-ONLY"""
         if self.RUNPOD_POD_ID:
             return {
-                "transcribe": f"wss://{self.RUNPOD_POD_ID}-{self.WS_TRANSCRIBE_PORT}.proxy.runpod.net/ws",
                 "understand": f"wss://{self.RUNPOD_POD_ID}-{self.WS_UNDERSTAND_PORT}.proxy.runpod.net/ws"
             }
         return {
-            "transcribe": f"ws://localhost:{self.WS_TRANSCRIBE_PORT}/ws",
             "understand": f"ws://localhost:{self.WS_UNDERSTAND_PORT}/ws"
         }
     
     def get_model_config(self) -> Dict[str, Any]:
-        """Get model configuration dict"""
+        """Get model configuration dict - UNDERSTANDING-ONLY"""
         return {
             "model_name": self.MODEL_NAME,
             "device": self.DEVICE,
             "dtype": str(self.TORCH_DTYPE),
             "max_new_tokens": self.MAX_NEW_TOKENS,
-            "transcription_temperature": self.TRANSCRIPTION_TEMPERATURE,
             "understanding_temperature": self.UNDERSTANDING_TEMPERATURE,
-            "understanding_top_p": self.UNDERSTANDING_TOP_P
+            "understanding_top_p": self.UNDERSTANDING_TOP_P,
+            "use_cache": self.USE_CACHE,
+            "optimize_for_speed": self.OPTIMIZE_FOR_SPEED,
+            "target_response_ms": self.TARGET_RESPONSE_MS,
+            "understanding_only": True
         }
     
     def get_audio_config(self) -> Dict[str, Any]:
-        """Get audio processing configuration"""
+        """Get audio processing configuration - UNDERSTANDING-ONLY"""
         return {
             "sample_rate": self.AUDIO_SAMPLE_RATE,
             "channels": self.AUDIO_CHANNELS,
-            "chunk_duration_ms": self.CHUNK_DURATION_MS,
+            "gap_threshold_ms": self.GAP_THRESHOLD_MS,
+            "min_speech_duration_ms": self.MIN_SPEECH_DURATION_MS,
+            "max_speech_duration_ms": self.MAX_SPEECH_DURATION_MS,
             "vad_mode": self.VAD_MODE,
-            "max_audio_length": self.MAX_AUDIO_LENGTH
+            "understanding_only": True,
+            "gap_detection": True
+        }
+    
+    def get_performance_config(self) -> Dict[str, Any]:
+        """Get performance optimization configuration"""
+        return {
+            "target_response_ms": self.TARGET_RESPONSE_MS,
+            "enable_flash_attention": self.ENABLE_FLASH_ATTENTION,
+            "enable_memory_efficient_attention": self.ENABLE_MEMORY_EFFICIENT_ATTENTION,
+            "optimize_for_speed": self.OPTIMIZE_FOR_SPEED,
+            "max_concurrent_connections": self.MAX_CONCURRENT_CONNECTIONS,
+            "websocket_timeout": self.WEBSOCKET_TIMEOUT
         }
