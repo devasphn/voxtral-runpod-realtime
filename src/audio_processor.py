@@ -1,4 +1,4 @@
-# PURE UNDERSTANDING-ONLY AUDIO PROCESSOR - NO TRANSCRIPTION
+# FIXED: PURE UNDERSTANDING-ONLY AUDIO PROCESSOR WITH PROPER WEBM HANDLING
 import asyncio
 import logging
 import numpy as np
@@ -10,6 +10,10 @@ import collections
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import time
+import tempfile
+import os
+import subprocess
+import ffmpeg
 
 try:
     import webrtcvad
@@ -21,7 +25,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class UnderstandingAudioProcessor:
-    """PURE UNDERSTANDING-ONLY: Audio processor with 0.3-second gap detection for conversational AI"""
+    """FIXED: PURE UNDERSTANDING-ONLY Audio processor with proper WebM handling"""
     
     def __init__(
         self,
@@ -35,25 +39,26 @@ class UnderstandingAudioProcessor:
         self.gap_threshold_ms = gap_threshold_ms
         self.conversation_manager = conversation_manager
         
-        # PURE UNDERSTANDING-ONLY: Audio buffering for gap detection
+        # FIXED: Audio buffering for gap detection
         self.audio_segments = {}  # Per-connection audio segments
         self.speech_buffers = {}  # Per-connection speech buffers
         self.silence_counters = {}  # Per-connection silence tracking
         self.last_audio_time = {}  # Per-connection timing
+        self.temp_files = {}  # Track temporary files per connection
         
-        # PURE UNDERSTANDING-ONLY: Gap detection thresholds
+        # FIXED: Gap detection thresholds
         self.min_speech_duration_ms = 500  # Minimum 0.5 seconds
         self.max_speech_duration_ms = 30000  # Maximum 30 seconds
         self.gap_threshold_samples = int(sample_rate * (gap_threshold_ms / 1000.0))
         
-        # PURE UNDERSTANDING-ONLY: WebRTC VAD for accurate gap detection
+        # FIXED: WebRTC VAD for accurate gap detection
         self.vad = None
         self.vad_enabled = False
         if VAD_AVAILABLE:
             try:
                 self.vad = webrtcvad.Vad(1)  # Moderate aggressiveness for conversation
                 self.vad_enabled = True
-                logger.info("✅ PURE UNDERSTANDING-ONLY WebRTC VAD initialized (mode 1)")
+                logger.info("✅ FIXED WebRTC VAD initialized (mode 1)")
             except Exception as e:
                 logger.warning(f"WebRTC VAD initialization failed: {e}")
         
@@ -63,14 +68,14 @@ class UnderstandingAudioProcessor:
         self.gaps_detected = 0
         self.processing_times = collections.deque(maxlen=50)
         
-        # PURE UNDERSTANDING-ONLY: ThreadPoolExecutor for processing
-        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="PureUnderstandingAudio")
+        # FIXED: ThreadPoolExecutor for processing
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="FixedUnderstandingAudio")
         
-        logger.info(f"✅ PURE UNDERSTANDING-ONLY AudioProcessor: {sample_rate}Hz, gap: {gap_threshold_ms}ms, VAD: {self.vad_enabled}")
+        logger.info(f"✅ FIXED UNDERSTANDING-ONLY AudioProcessor: {sample_rate}Hz, gap: {gap_threshold_ms}ms, VAD: {self.vad_enabled}")
         logger.info("🚫 Transcription functionality: COMPLETELY DISABLED")
     
     async def process_audio_understanding(self, audio_data: bytes, websocket=None) -> Optional[Dict[str, Any]]:
-        """PURE UNDERSTANDING-ONLY: Process audio with gap detection for conversational AI"""
+        """FIXED: Process WebM audio with proper conversion and gap detection"""
         start_time = time.time()
         
         try:
@@ -83,14 +88,15 @@ class UnderstandingAudioProcessor:
                 self.speech_buffers[conn_id] = []
                 self.silence_counters[conn_id] = 0
                 self.last_audio_time[conn_id] = time.time()
+                self.temp_files[conn_id] = []
             
             # Validate input
             if not audio_data or len(audio_data) < 100:
                 logger.debug("Insufficient audio data for understanding")
                 return None
             
-            # Convert WebM to PCM if needed
-            pcm_data = await self._convert_to_pcm(audio_data)
+            # FIXED: Convert WebM to PCM using FFmpeg
+            pcm_data = await self._convert_webm_to_pcm(audio_data)
             if not pcm_data:
                 return None
             
@@ -98,7 +104,7 @@ class UnderstandingAudioProcessor:
             self.audio_segments[conn_id].extend(pcm_data)
             self.last_audio_time[conn_id] = time.time()
             
-            # Analyze current segment for speech
+            # FIXED: Analyze current segment for speech using proper VAD
             segment_duration_ms = len(pcm_data) / 2 / self.sample_rate * 1000
             speech_detected = self._detect_speech_in_segment(pcm_data)
             
@@ -106,10 +112,10 @@ class UnderstandingAudioProcessor:
             if speech_detected:
                 self.speech_buffers[conn_id].append(time.time())
                 self.silence_counters[conn_id] = 0
-                logger.debug(f"PURE UNDERSTANDING-ONLY speech detected: {segment_duration_ms:.0f}ms")
+                logger.debug(f"FIXED speech detected: {segment_duration_ms:.0f}ms")
             else:
                 self.silence_counters[conn_id] += 1
-                logger.debug(f"PURE UNDERSTANDING-ONLY silence: counter={self.silence_counters[conn_id]}")
+                logger.debug(f"FIXED silence: counter={self.silence_counters[conn_id]}")
             
             # Calculate durations
             total_audio_ms = len(self.audio_segments[conn_id]) / 2 / self.sample_rate * 1000
@@ -137,9 +143,9 @@ class UnderstandingAudioProcessor:
             )
             
             if gap_detected:
-                logger.info(f"🎯 PURE UNDERSTANDING-ONLY gap detected: {silence_duration_ms:.0f}ms silence, {total_audio_ms:.0f}ms total")
+                logger.info(f"🎯 FIXED gap detected: {silence_duration_ms:.0f}ms silence, {total_audio_ms:.0f}ms total")
                 
-                # Process complete speech segment
+                # FIXED: Process complete speech segment
                 result = await self._process_complete_speech_segment(conn_id)
                 
                 # Reset buffers for next segment
@@ -167,40 +173,59 @@ class UnderstandingAudioProcessor:
                 }
                 
         except Exception as e:
-            logger.error(f"PURE UNDERSTANDING-ONLY audio processing error: {e}")
-            return {"error": f"PURE UNDERSTANDING-ONLY processing failed: {str(e)}"}
+            logger.error(f"FIXED audio processing error: {e}")
+            return {"error": f"FIXED processing failed: {str(e)}"}
     
-    async def _convert_to_pcm(self, audio_data: bytes) -> Optional[bytes]:
-        """Convert audio data to PCM format"""
+    async def _convert_webm_to_pcm(self, webm_data: bytes) -> Optional[bytes]:
+        """FIXED: Convert WebM audio to PCM using FFmpeg"""
         try:
-            # Check if already PCM/WAV
-            if audio_data.startswith(b'RIFF') and b'WAVE' in audio_data[:20]:
-                # Extract PCM data from WAV
+            # Create temporary files
+            with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as webm_file:
+                webm_file.write(webm_data)
+                webm_path = webm_file.name
+            
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
+                wav_path = wav_file.name
+            
+            try:
+                # FIXED: Use FFmpeg to convert WebM to WAV
+                (
+                    ffmpeg
+                    .input(webm_path)
+                    .output(wav_path, acodec='pcm_s16le', ac=1, ar=16000, format='wav')
+                    .overwrite_output()
+                    .run(capture_stdout=True, capture_stderr=True, quiet=True)
+                )
+                
+                # Read the converted WAV file
+                with wave.open(wav_path, 'rb') as wav:
+                    if wav.getframerate() != 16000 or wav.getnchannels() != 1:
+                        logger.warning(f"FIXED: Unexpected WAV format: {wav.getframerate()}Hz, {wav.getnchannels()}ch")
+                    
+                    pcm_data = wav.readframes(wav.getnframes())
+                    
+                logger.debug(f"FIXED: Converted WebM to PCM: {len(webm_data)} -> {len(pcm_data)} bytes")
+                return pcm_data
+                
+            finally:
+                # Clean up temporary files
                 try:
-                    wav_io = io.BytesIO(audio_data)
-                    with wave.open(wav_io, 'rb') as wav_file:
-                        return wav_file.readframes(wav_file.getnframes())
-                except Exception as e:
-                    logger.debug(f"WAV parsing failed: {e}")
-            
-            # For WebM or other formats, assume raw PCM for now
-            # In a production system, you'd use ffmpeg for conversion
-            if len(audio_data) % 2 == 1:
-                audio_data = audio_data[:-1]  # Ensure even length
-            
-            return audio_data
-            
+                    os.unlink(webm_path)
+                    os.unlink(wav_path)
+                except:
+                    pass
+                    
         except Exception as e:
-            logger.error(f"Audio conversion error: {e}")
+            logger.error(f"FIXED WebM to PCM conversion error: {e}")
             return None
     
     def _detect_speech_in_segment(self, pcm_data: bytes) -> bool:
-        """Detect speech in audio segment using VAD or energy analysis"""
+        """FIXED: Detect speech in audio segment using VAD"""
         try:
             if len(pcm_data) < 320:  # Less than 20ms at 16kHz
                 return False
             
-            # Method 1: WebRTC VAD (most accurate)
+            # FIXED: Method 1: WebRTC VAD (most accurate)
             if self.vad_enabled and self.vad:
                 try:
                     # Process in 10ms frames (160 samples at 16kHz)
@@ -220,12 +245,14 @@ class UnderstandingAudioProcessor:
                     
                     if total_frames > 0:
                         speech_ratio = speech_frames / total_frames
-                        return speech_ratio > 0.3  # 30% speech threshold
+                        is_speech = speech_ratio > 0.3  # 30% speech threshold
+                        logger.debug(f"FIXED VAD: {speech_frames}/{total_frames} = {speech_ratio:.3f} -> {is_speech}")
+                        return is_speech
                         
                 except Exception as e:
-                    logger.debug(f"VAD processing error: {e}")
+                    logger.debug(f"FIXED VAD processing error: {e}")
             
-            # Method 2: Energy-based detection (fallback)
+            # FIXED: Method 2: Energy-based detection (fallback)
             audio_array = np.frombuffer(pcm_data, dtype=np.int16)
             if len(audio_array) == 0:
                 return False
@@ -242,14 +269,16 @@ class UnderstandingAudioProcessor:
             has_energy = rms_energy > energy_threshold
             has_speech_zcr = 0.01 <= zcr_normalized <= 0.3
             
-            return has_energy and has_speech_zcr
+            is_speech = has_energy and has_speech_zcr
+            logger.debug(f"FIXED Energy-based: energy={rms_energy:.1f}, zcr={zcr_normalized:.3f} -> {is_speech}")
+            return is_speech
             
         except Exception as e:
-            logger.error(f"Speech detection error: {e}")
+            logger.error(f"FIXED Speech detection error: {e}")
             return False
     
     async def _process_complete_speech_segment(self, conn_id: str) -> Dict[str, Any]:
-        """Process complete speech segment for understanding"""
+        """FIXED: Process complete speech segment for understanding"""
         try:
             if conn_id not in self.audio_segments or len(self.audio_segments[conn_id]) == 0:
                 return {"error": "No audio data to process"}
@@ -257,8 +286,8 @@ class UnderstandingAudioProcessor:
             # Get the complete audio segment
             complete_audio = bytes(self.audio_segments[conn_id])
             
-            # Create WAV format for understanding processing
-            wav_data = self._create_wav_from_pcm(complete_audio)
+            # FIXED: Create proper WAV file for Voxtral
+            wav_path = await self._create_wav_file_for_voxtral(complete_audio)
             
             # Calculate metrics
             duration_ms = len(complete_audio) / 2 / self.sample_rate * 1000
@@ -269,11 +298,11 @@ class UnderstandingAudioProcessor:
             if speech_quality > 0.3:
                 self.speech_segments_detected += 1
             
-            logger.info(f"✅ PURE UNDERSTANDING-ONLY segment complete: {duration_ms:.0f}ms, quality: {speech_quality:.3f}")
+            logger.info(f"✅ FIXED segment complete: {duration_ms:.0f}ms, quality: {speech_quality:.3f}")
             
             return {
                 "speech_complete": True,
-                "audio_data": wav_data,
+                "audio_file_path": wav_path,  # FIXED: Return file path instead of raw data
                 "duration_ms": duration_ms,
                 "speech_quality": speech_quality,
                 "sample_rate": self.sample_rate,
@@ -285,28 +314,42 @@ class UnderstandingAudioProcessor:
             }
             
         except Exception as e:
-            logger.error(f"Complete speech segment processing error: {e}")
-            return {"error": f"Speech segment processing failed: {str(e)}"}
+            logger.error(f"FIXED Complete speech segment processing error: {e}")
+            return {"error": f"FIXED Speech segment processing failed: {str(e)}"}
     
-    def _create_wav_from_pcm(self, pcm_data: bytes) -> bytes:
-        """Create WAV file from PCM data"""
+    async def _create_wav_file_for_voxtral(self, pcm_data: bytes) -> str:
+        """FIXED: Create WAV file optimized for Voxtral model"""
         try:
-            wav_io = io.BytesIO()
+            # Create temporary WAV file
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
+            os.close(temp_fd)
             
-            with wave.open(wav_io, 'wb') as wav_file:
-                wav_file.setnchannels(self.channels)
+            # Create WAV file with proper format for Voxtral
+            with wave.open(temp_path, 'wb') as wav_file:
+                wav_file.setnchannels(self.channels)  # Mono
                 wav_file.setsampwidth(2)  # 16-bit
-                wav_file.setframerate(self.sample_rate)
+                wav_file.setframerate(self.sample_rate)  # 16kHz
                 wav_file.writeframes(pcm_data)
             
-            return wav_io.getvalue()
+            # Verify created file
+            file_size = os.path.getsize(temp_path)
+            if file_size < 1000:
+                raise ValueError(f"FIXED: Created WAV file too small: {file_size} bytes")
+            
+            logger.info(f"✅ FIXED: Created WAV file for Voxtral: {temp_path} ({file_size} bytes)")
+            return temp_path
             
         except Exception as e:
-            logger.error(f"WAV creation error: {e}")
-            raise RuntimeError(f"WAV creation failed: {e}")
+            logger.error(f"FIXED WAV file creation error: {e}")
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            raise RuntimeError(f"FIXED WAV file creation failed: {e}")
     
     def _analyze_speech_quality(self, pcm_data: bytes) -> float:
-        """Analyze speech quality for understanding processing"""
+        """FIXED: Analyze speech quality for understanding processing"""
         try:
             if len(pcm_data) == 0:
                 return 0.0
@@ -332,11 +375,11 @@ class UnderstandingAudioProcessor:
             return max(0.0, min(1.0, quality))
             
         except Exception as e:
-            logger.error(f"Speech quality analysis error: {e}")
+            logger.error(f"FIXED Speech quality analysis error: {e}")
             return 0.5  # Default moderate quality
     
     def _reset_connection_buffers(self, conn_id: str):
-        """Reset buffers for a connection after processing"""
+        """FIXED: Reset buffers for a connection after processing"""
         if conn_id in self.audio_segments:
             self.audio_segments[conn_id].clear()
         if conn_id in self.speech_buffers:
@@ -345,7 +388,7 @@ class UnderstandingAudioProcessor:
             self.silence_counters[conn_id] = 0
     
     def cleanup_connection(self, websocket):
-        """Cleanup connection data when WebSocket disconnects"""
+        """FIXED: Cleanup connection data when WebSocket disconnects"""
         conn_id = id(websocket)
         
         # Clean up all connection data
@@ -354,10 +397,20 @@ class UnderstandingAudioProcessor:
         self.silence_counters.pop(conn_id, None)
         self.last_audio_time.pop(conn_id, None)
         
-        logger.info(f"🧹 PURE UNDERSTANDING-ONLY audio cleanup for connection: {conn_id}")
+        # FIXED: Clean up temporary files
+        if conn_id in self.temp_files:
+            for temp_file in self.temp_files[conn_id]:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except:
+                    pass
+            self.temp_files.pop(conn_id, None)
+        
+        logger.info(f"🧹 FIXED audio cleanup for connection: {conn_id}")
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get processing statistics"""
+        """FIXED: Get processing statistics"""
         avg_processing_time = (
             sum(self.processing_times) / len(self.processing_times)
             if self.processing_times else 0.0
@@ -368,7 +421,7 @@ class UnderstandingAudioProcessor:
         )
         
         return {
-            "mode": "PURE UNDERSTANDING-ONLY",
+            "mode": "FIXED UNDERSTANDING-ONLY",
             "transcription_disabled": True,
             "gap_threshold_ms": self.gap_threshold_ms,
             "segments_processed": self.segments_processed,
@@ -381,37 +434,37 @@ class UnderstandingAudioProcessor:
             "active_connections": len(self.audio_segments),
             "avg_processing_time_ms": round(avg_processing_time * 1000, 2),
             "min_speech_duration_ms": self.min_speech_duration_ms,
-            "max_speech_duration_ms": self.max_speech_duration_ms
+            "max_speech_duration_ms": self.max_speech_duration_ms,
+            "webm_conversion": "FIXED with FFmpeg"
         }
     
-    def reset(self):
-        """Reset processor state"""
+    async def cleanup(self):
+        """FIXED: Enhanced cleanup"""
+        logger.info("🧹 Starting FIXED audio processor cleanup...")
+        
+        # Clean up all temporary files
+        for conn_id, temp_files in self.temp_files.items():
+            for temp_file in temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except:
+                    pass
+        
+        # Reset all buffers
         self.audio_segments.clear()
         self.speech_buffers.clear()
         self.silence_counters.clear()
         self.last_audio_time.clear()
-        
-        self.segments_processed = 0
-        self.speech_segments_detected = 0
-        self.gaps_detected = 0
-        self.processing_times.clear()
-        
-        logger.info("✅ PURE UNDERSTANDING-ONLY audio processor reset")
-    
-    async def cleanup(self):
-        """PURE UNDERSTANDING-ONLY: Enhanced cleanup"""
-        logger.info("🧹 Starting PURE UNDERSTANDING-ONLY audio processor cleanup...")
-        
-        # Reset all buffers
-        self.reset()
+        self.temp_files.clear()
         
         # Shutdown executor
         try:
             self.executor.shutdown(wait=True)
         except Exception as e:
-            logger.error(f"PURE UNDERSTANDING-ONLY executor shutdown error: {e}")
+            logger.error(f"FIXED executor shutdown error: {e}")
         
-        logger.info("✅ PURE UNDERSTANDING-ONLY audio processor fully cleaned up")
+        logger.info("✅ FIXED audio processor fully cleaned up")
 
 # Backward compatibility alias
 AudioProcessor = UnderstandingAudioProcessor
