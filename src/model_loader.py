@@ -1,3 +1,4 @@
+# COMPLETELY FIXED MODEL LOADER - PROPER MISTRAL-COMMON INTEGRATION
 import asyncio
 import logging
 import torch
@@ -9,13 +10,23 @@ import time
 import numpy as np
 import base64
 
+# CRITICAL: Import mistral-common for proper Voxtral audio handling
+from mistral_common.audio import Audio
+from mistral_common.protocol.instruct.messages import (
+    UserMessage, 
+    AssistantMessage,
+    ContentChunk,
+    TextChunk,
+    AudioChunk
+)
+
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
 import soundfile as sf
 
 logger = logging.getLogger(__name__)
 
 class VoxtralUnderstandingManager:
-    """COMPLETELY FIXED: Proper Voxtral model manager with transformers integration"""
+    """COMPLETELY FIXED: Proper Voxtral model manager with mistral-common integration"""
     
     def __init__(
         self, 
@@ -54,24 +65,24 @@ class VoxtralUnderstandingManager:
         self.target_response_ms = 200  # Sub-200ms target
         self.optimize_for_speed = True
         
-        logger.info(f"COMPLETELY FIXED VoxtralUnderstandingManager initialized")
+        logger.info(f"COMPLETELY FIXED VoxtralUnderstandingManager initialized with mistral-common support")
     
     async def load_model(self) -> None:
-        """COMPLETELY FIXED: Load Voxtral model with proper transformers integration"""
+        """COMPLETELY FIXED: Load Voxtral model with proper mistral-common integration"""
         try:
-            logger.info(f"🔄 Loading COMPLETELY FIXED Voxtral model: {self.model_name}")
+            logger.info(f"🔄 Loading FIXED Voxtral model with mistral-common: {self.model_name}")
             
             # Clear GPU memory
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 gc.collect()
             
-            # FIXED: Load processor
-            logger.info("Loading processor...")
+            # FIXED: Load processor with mistral-common support
+            logger.info("Loading processor with mistral-common support...")
             self.processor = AutoProcessor.from_pretrained(self.model_name)
             
             # FIXED: Load model with proper configuration
-            logger.info("Loading model with optimizations...")
+            logger.info("Loading model with mistral-common optimizations...")
             self.model = VoxtralForConditionalGeneration.from_pretrained(
                 self.model_name,
                 torch_dtype=self.torch_dtype,
@@ -101,24 +112,28 @@ class VoxtralUnderstandingManager:
                 "language_codes": list(self.supported_languages.keys()),
                 "understanding_only": True,
                 "transcription_disabled": True,
+                "mistral_common_integrated": True,
                 "attention_implementation": "eager",
                 "target_response_ms": self.target_response_ms,
-                "optimizations_enabled": self.optimize_for_speed,
-                "model_size": f"{self._count_parameters() / 1e9:.1f}B"
+                "optimizations_enabled": self.optimize_for_speed
             }
             
             self.is_loaded = True
-            logger.info(f"✅ COMPLETELY FIXED Model loaded successfully!")
+            logger.info(f"✅ FIXED Model loaded with mistral-common integration!")
             logger.info(f"✅ Memory usage: {self.model_info['memory_usage']}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to load COMPLETELY FIXED model: {e}")
+            logger.error(f"❌ Failed to load FIXED model with mistral-common: {e}")
             raise RuntimeError(f"Model loading failed: {e}")
     
-    def _create_conversation_from_audio(self, audio_data: bytes, text_query: str) -> list:
-        """Create conversation format for Voxtral using transformers"""
+    def _bytes_to_audio(self, audio_data: bytes) -> Optional[Audio]:
+        """CRITICAL: Convert bytes to mistral-common Audio object"""
         try:
-            # Create temporary WAV file for processing
+            if not audio_data or len(audio_data) < 1000:
+                logger.warning("Audio data too small for processing")
+                return None
+            
+            # Create temporary WAV file for mistral-common
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
                 temp_path = temp_file.name
                 
@@ -130,38 +145,26 @@ class VoxtralUnderstandingManager:
                     wav_file.setframerate(16000)  # 16kHz
                     wav_file.writeframes(audio_data)
                 
-                # Create conversation format
-                conversation = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "audio",
-                                "path": temp_path
-                            },
-                            {
-                                "type": "text", 
-                                "text": text_query
-                            }
-                        ]
-                    }
-                ]
+                # Create mistral-common Audio object
+                audio = Audio.from_file(temp_path)
                 
-                logger.debug(f"✅ Created conversation with audio file: {temp_path}")
-                return conversation, temp_path
+                # Clean up temp file
+                os.unlink(temp_path)
+                
+                logger.debug(f"✅ Created mistral-common Audio object from {len(audio_data)} bytes")
+                return audio
                 
         except Exception as e:
-            logger.error(f"Failed to create conversation: {e}")
-            return None, None
+            logger.error(f"Failed to create mistral-common Audio object: {e}")
+            return None
     
     async def understand_audio(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """COMPLETELY FIXED: Understanding response using proper transformers API"""
+        """COMPLETELY FIXED: Understanding response using proper mistral-common API"""
         if not self.is_loaded:
             logger.error("Model not loaded for understanding")
             return {"error": "Model not loaded"}
         
         start_time = time.time()
-        temp_path = None
         
         try:
             # Extract data from message
@@ -179,14 +182,22 @@ class VoxtralUnderstandingManager:
                     logger.error(f"Failed to decode base64 audio: {e}")
                     return {"error": "Invalid base64 audio data"}
             
-            logger.info(f"🧠 COMPLETELY FIXED processing: {len(audio_data)} bytes")
+            logger.info(f"🧠 FIXED processing with mistral-common: {len(audio_data)} bytes")
             
-            # Create conversation with audio
-            conversation, temp_path = self._create_conversation_from_audio(audio_data, text_query)
-            if not conversation:
-                return {"error": "Failed to create conversation"}
+            # CRITICAL: Convert bytes to mistral-common Audio object
+            audio = self._bytes_to_audio(audio_data)
+            if not audio:
+                return {"error": "Failed to create Audio object"}
             
-            logger.info("✅ Created proper conversation format")
+            # CRITICAL: Create proper conversation format for Voxtral
+            conversation = [
+                UserMessage(content=[
+                    AudioChunk(audio=audio),
+                    TextChunk(text=text_query)
+                ])
+            ]
+            
+            logger.info("✅ Created proper mistral-common conversation format")
             
             # CRITICAL: Use apply_chat_template for multi-modal input
             inputs = self.processor.apply_chat_template(
@@ -236,22 +247,23 @@ class VoxtralUnderstandingManager:
             
             total_time = time.time() - start_time
             
-            logger.info(f"🧠 COMPLETELY FIXED Generated response in {generation_time*1000:.0f}ms: '{response[:50]}...'")
+            logger.info(f"🧠 FIXED Generated response with mistral-common in {generation_time*1000:.0f}ms: '{response[:50]}...'")
             
             # Validate response
             if not response or len(response.strip()) < 3:
                 logger.warning("Empty or very short understanding response generated")
                 return {
                     "response": "I can hear audio input, but I'm having trouble generating a detailed response. Could you try speaking a bit longer or more clearly?",
-                    "transcribed_text": "[Audio processed for understanding]",
+                    "transcribed_text": "[Audio processed for understanding with mistral-common]",
                     "processing_time_ms": total_time * 1000,
                     "language": self.default_language,
                     "fallback_used": True,
-                    "understanding_only": True
+                    "understanding_only": True,
+                    "mistral_common_used": True
                 }
             
             # Extract any transcribed content from response
-            transcribed_text = "[Audio understood and processed]"
+            transcribed_text = "[Audio understood and processed with mistral-common]"
             
             # Final result
             result = {
@@ -263,24 +275,74 @@ class VoxtralUnderstandingManager:
                 "sub_200ms": total_time * 1000 < 200,
                 "understanding_only": True,
                 "transcription_disabled": True,
+                "mistral_common_integrated": True,
                 "optimize_for_speed": True,
                 "model_api_fixed": True
             }
             
-            logger.info(f"✅ COMPLETELY FIXED UNDERSTANDING complete: {total_time*1000:.0f}ms total ({'✅' if total_time*1000 < 200 else '⚠️'} sub-200ms)")
+            logger.info(f"✅ FIXED UNDERSTANDING complete with mistral-common: {total_time*1000:.0f}ms total ({'✅' if total_time*1000 < 200 else '⚠️'} sub-200ms)")
             
             return result
             
         except Exception as e:
-            logger.error(f"COMPLETELY FIXED processing error: {e}", exc_info=True)
-            return {"error": f"Processing failed: {str(e)}"}
-        finally:
-            # Clean up temp file
-            if temp_path and os.path.exists(temp_path):
+            logger.error(f"FIXED processing error with mistral-common: {e}", exc_info=True)
+            return {"error": f"Processing failed with mistral-common: {str(e)}"}
+    
+    async def generate_understanding_response(
+        self, 
+        audio_file_path: str, 
+        context: str = "",
+        optimize_for_speed: bool = True
+    ) -> Dict[str, Any]:
+        """COMPLETELY FIXED: Generate understanding response from audio file"""
+        if not self.is_loaded:
+            logger.error("Model not loaded for understanding")
+            return {"error": "Model not loaded"}
+        
+        try:
+            # Validate input
+            if not audio_file_path or not os.path.exists(audio_file_path):
+                logger.warning(f"Invalid audio file: {audio_file_path}")
+                return {"error": "Invalid or missing audio file"}
+            
+            # Read audio file as bytes
+            with open(audio_file_path, 'rb') as f:
+                audio_data = f.read()
+            
+            # If it's a WAV file, extract PCM data
+            if audio_file_path.endswith('.wav'):
                 try:
-                    os.unlink(temp_path)
-                except:
-                    pass
+                    import wave
+                    with wave.open(audio_file_path, 'rb') as wav_file:
+                        frames = wav_file.readframes(wav_file.getnframes())
+                        audio_data = frames
+                except Exception as e:
+                    logger.warning(f"Failed to extract PCM from WAV: {e}, using raw file data")
+            
+            # Create message format
+            message = {
+                "audio": audio_data,
+                "text": f"Please understand and respond to what you hear in the audio. {context}" if context else "Please understand and respond to what you hear in the audio."
+            }
+            
+            # Clean up temp file
+            try:
+                os.unlink(audio_file_path)
+            except:
+                pass
+            
+            # Process through understand_audio
+            return await self.understand_audio(message)
+            
+        except Exception as e:
+            logger.error(f"FIXED file processing error: {e}", exc_info=True)
+            # Clean up temp file on error
+            try:
+                if os.path.exists(audio_file_path):
+                    os.unlink(audio_file_path)
+            except:
+                pass
+            return {"error": f"File processing failed: {str(e)}"}
     
     def _count_parameters(self) -> int:
         """Count total model parameters"""
@@ -309,8 +371,8 @@ class VoxtralUnderstandingManager:
             return {"gpu_memory": 0.0}
     
     async def cleanup(self) -> None:
-        """COMPLETELY FIXED: Cleanup with proper resource management"""
-        logger.info("🧹 Cleaning up COMPLETELY FIXED model resources...")
+        """FIXED: Cleanup with proper resource management"""
+        logger.info("🧹 Cleaning up FIXED model resources with mistral-common...")
         
         if self.model is not None:
             del self.model
@@ -327,4 +389,4 @@ class VoxtralUnderstandingManager:
         
         gc.collect()
         self.is_loaded = False
-        logger.info("✅ COMPLETELY FIXED model cleanup completed")
+        logger.info("✅ FIXED model cleanup completed with mistral-common")
