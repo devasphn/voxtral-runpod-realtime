@@ -1,566 +1,327 @@
-# COMPLETELY FIXED AUDIO PROCESSOR - PROPER MISTRAL-COMMON INTEGRATION
+# COMPLETELY FIXED MODEL LOADER - PROPER HUGGINGFACE VOXTRAL API
 import asyncio
 import logging
-import numpy as np
-from typing import Optional, List, Dict, Any, Tuple
-import io
-import wave
-import json
-import collections
-import threading
-from concurrent.futures import ThreadPoolExecutor
-import time
+import torch
+from typing import Optional, Dict, Any, Union
+import gc
 import tempfile
 import os
-import subprocess
+import time
+import numpy as np
+import base64
 
-# CRITICAL: Import mistral-common for proper Voxtral audio handling
-from mistral_common.audio import Audio
-from mistral_common.protocol.instruct.messages import AudioChunk, RawAudio
+# CRITICAL: Import for proper Voxtral processing
+from transformers import VoxtralForConditionalGeneration, AutoProcessor
+import soundfile as sf
 
+# CORRECT: Import mistral_common for audio handling as per HuggingFace docs
 try:
-    import webrtcvad
-    VAD_AVAILABLE = True
+    from mistral_common.audio import Audio
+    from mistral_common.protocol.instruct.messages import RawAudio
+    MISTRAL_COMMON_AVAILABLE = True
 except ImportError:
-    VAD_AVAILABLE = False
-    logging.warning("WebRTC VAD not available, using basic silence detection")
+    MISTRAL_COMMON_AVAILABLE = False
+    logging.warning("mistral-common not available, falling back to direct audio processing")
 
 logger = logging.getLogger(__name__)
 
-class UnderstandingAudioProcessor:
-    """COMPLETELY FIXED: Perfect Voice Activity Detection with mistral-common integration"""
+class VoxtralUnderstandingManager:
+    """COMPLETELY FIXED: Official Hugging Face Voxtral implementation"""
     
     def __init__(
-        self,
-        sample_rate: int = 16000,
-        channels: int = 1,
-        gap_threshold_ms: int = 300,
-        conversation_manager=None
+        self, 
+        model_name: str = "mistralai/Voxtral-Mini-3B-2507",
+        device: str = "cuda",
+        torch_dtype: torch.dtype = torch.bfloat16
     ):
-        self.sample_rate = sample_rate
-        self.channels = channels
-        self.gap_threshold_ms = gap_threshold_ms
-        self.conversation_manager = conversation_manager
+        self.model_name = model_name
+        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
+        self.torch_dtype = torch_dtype
         
-        # FIXED: Audio buffering for gap detection with mistral-common
-        self.audio_segments = {}  # Per-connection audio segments
-        self.speech_buffers = {}  # Per-connection speech buffers
-        self.silence_counters = {}  # Per-connection silence tracking
-        self.last_audio_time = {}  # Per-connection timing
-        self.temp_files = {}  # Track temporary files per connection
+        # Model components
+        self.model: Optional[VoxtralForConditionalGeneration] = None
+        self.processor: Optional[AutoProcessor] = None
         
-        # FIXED: Perfect VAD Configuration
-        self.min_speech_duration_ms = 500  # Minimum 0.5 seconds
-        self.max_speech_duration_ms = 30000  # Maximum 30 seconds
-        self.gap_threshold_samples = int(sample_rate * (gap_threshold_ms / 1000.0))
+        # State
+        self.is_loaded = False
+        self.model_info = {}
         
-        # FIXED: WebRTC VAD with proper configuration
-        self.vad = None
-        self.vad_enabled = False
-        if VAD_AVAILABLE:
-            try:
-                self.vad = webrtcvad.Vad(1)  # Mode 1: Normal aggressiveness
-                self.vad_enabled = True
-                logger.info("✅ FIXED WebRTC VAD initialized with mistral-common support")
-            except Exception as e:
-                logger.warning(f"WebRTC VAD initialization failed: {e}")
+        # Supported languages for Voxtral
+        self.supported_languages = {
+            "en": "English", 
+            "es": "Spanish", 
+            "fr": "French",
+            "pt": "Portuguese",
+            "hi": "Hindi",
+            "de": "German",
+            "nl": "Dutch",
+            "it": "Italian"
+        }
         
-        # FIXED: Energy-based detection thresholds
-        self.energy_threshold = 150.0  # Lowered for better detection
-        self.zcr_min = 0.005  # Lowered minimum zero crossing rate
-        self.zcr_max = 0.4    # Raised maximum zero crossing rate
+        self.default_language = "en"
+        self.target_response_ms = 200
+        self.optimize_for_speed = True
         
-        # Statistics
-        self.segments_processed = 0
-        self.speech_segments_detected = 0
-        self.gaps_detected = 0
-        self.processing_times = collections.deque(maxlen=50)
-        
-        # FIXED: ThreadPoolExecutor for processing
-        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="FixedUnderstandingAudio")
-        
-        logger.info(f"✅ FIXED AudioProcessor with mistral-common: {sample_rate}Hz, gap: {gap_threshold_ms}ms, VAD: {self.vad_enabled}")
-        logger.info(f"✅ Energy threshold: {self.energy_threshold}, ZCR range: {self.zcr_min}-{self.zcr_max}")
+        logger.info(f"✅ VoxtralUnderstandingManager initialized (HuggingFace official API)")
     
-    async def process_audio_understanding(self, audio_data: bytes, websocket=None) -> Optional[Dict[str, Any]]:
-        """COMPLETELY FIXED: Perfect audio processing with mistral-common integration"""
-        start_time = time.time()
-        
+    async def load_model(self) -> None:
+        """FIXED: Load Voxtral model using official HuggingFace API"""
         try:
-            # Get connection ID
-            conn_id = id(websocket) if websocket else "default"
+            logger.info(f"🔄 Loading Voxtral model: {self.model_name}")
             
-            # Initialize connection tracking
-            if conn_id not in self.audio_segments:
-                self.audio_segments[conn_id] = bytearray()
-                self.speech_buffers[conn_id] = []
-                self.silence_counters[conn_id] = 0
-                self.last_audio_time[conn_id] = time.time()
-                self.temp_files[conn_id] = []
+            # Clear GPU memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                gc.collect()
             
-            # Validate input
-            if not audio_data or len(audio_data) < 100:
-                logger.debug("Insufficient audio data for understanding")
-                return None
+            # Load processor - EXACT as per HuggingFace docs
+            logger.info("Loading processor...")
+            self.processor = AutoProcessor.from_pretrained(self.model_name)
             
-            # COMPLETELY FIXED: Convert WebM to PCM using enhanced FFmpeg with mistral-common compatibility
-            pcm_data = await self._convert_audio_to_pcm_fixed_mistral_common(audio_data)
-            if not pcm_data:
-                logger.debug("Failed to convert audio to PCM - skipping chunk")
-                return {
-                    "audio_received": True,
-                    "speech_complete": False,
-                    "conversion_failed": True,
-                    "understanding_only": True,
-                    "transcription_disabled": True,
-                    "mistral_common_ready": False
-                }
-            
-            # Add to connection's audio buffer
-            self.audio_segments[conn_id].extend(pcm_data)
-            self.last_audio_time[conn_id] = time.time()
-            
-            # COMPLETELY FIXED: Perfect speech detection
-            segment_duration_ms = len(pcm_data) / 2 / self.sample_rate * 1000
-            speech_detected = self._detect_speech_fixed(pcm_data)
-            
-            # Update speech buffer and silence counter
-            if speech_detected:
-                self.speech_buffers[conn_id].append(time.time())
-                self.silence_counters[conn_id] = 0
-                logger.debug(f"🎤 SPEECH DETECTED: {segment_duration_ms:.0f}ms")
-            else:
-                self.silence_counters[conn_id] += 1
-                logger.debug(f"🔇 Silence: counter={self.silence_counters[conn_id]}")
-            
-            # Calculate durations
-            total_audio_ms = len(self.audio_segments[conn_id]) / 2 / self.sample_rate * 1000
-            silence_duration_ms = self.silence_counters[conn_id] * segment_duration_ms
-            
-            # Check if we have enough speech data
-            if total_audio_ms < self.min_speech_duration_ms:
-                return {
-                    "audio_received": True,
-                    "speech_complete": False,
-                    "segment_duration_ms": segment_duration_ms,
-                    "total_duration_ms": total_audio_ms,
-                    "silence_duration_ms": silence_duration_ms,
-                    "remaining_to_gap_ms": max(0, self.gap_threshold_ms - silence_duration_ms),
-                    "gap_will_trigger_at_ms": self.gap_threshold_ms,
-                    "speech_detected": speech_detected,
-                    "understanding_only": True,
-                    "transcription_disabled": True,
-                    "mistral_common_ready": True
-                }
-            
-            # Check for gap detection (0.3 second silence)
-            gap_detected = (
-                silence_duration_ms >= self.gap_threshold_ms or 
-                total_audio_ms >= self.max_speech_duration_ms
+            # Load model - EXACT as per HuggingFace docs
+            logger.info("Loading model...")
+            self.model = VoxtralForConditionalGeneration.from_pretrained(
+                self.model_name,
+                torch_dtype=self.torch_dtype,
+                device_map="auto",
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,
+                attn_implementation="eager"  # Compatibility fix
             )
             
-            if gap_detected:
-                logger.info(f"🎯 GAP DETECTED: {silence_duration_ms:.0f}ms silence, {total_audio_ms:.0f}ms total")
-                
-                # FIXED: Process complete speech segment with mistral-common
-                result = await self._process_complete_speech_segment_mistral_common(conn_id)
-                
-                # Reset buffers for next segment
-                self._reset_connection_buffers(conn_id)
-                
-                # Record stats
-                self.gaps_detected += 1
-                processing_time = time.time() - start_time
-                self.processing_times.append(processing_time)
-                
-                return result
-            else:
-                # Return intermediate feedback
-                return {
-                    "audio_received": True,
-                    "speech_complete": False,
-                    "segment_duration_ms": segment_duration_ms,
-                    "total_duration_ms": total_audio_ms,
-                    "silence_duration_ms": silence_duration_ms,
-                    "remaining_to_gap_ms": max(0, self.gap_threshold_ms - silence_duration_ms),
-                    "gap_will_trigger_at_ms": self.gap_threshold_ms,
-                    "speech_detected": speech_detected,
-                    "understanding_only": True,
-                    "transcription_disabled": True,
-                    "mistral_common_ready": True
-                }
-                
-        except Exception as e:
-            logger.error(f"FIXED audio processing error with mistral-common: {e}")
-            return {"error": f"FIXED processing failed: {str(e)}"}
-    
-    async def _convert_audio_to_pcm_fixed_mistral_common(self, audio_data: bytes) -> Optional[bytes]:
-        """COMPLETELY FIXED: Perfect WebM to PCM conversion with mistral-common compatibility"""
-        try:
-            # Create temporary input file
-            with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as input_file:
-                input_file.write(audio_data)
-                input_path = input_file.name
+            # Set to evaluation mode
+            self.model.eval()
             
-            try:
-                # STRATEGY 1: Direct PCM output (most compatible with mistral-common)
-                cmd = [
-                    'ffmpeg', '-y', '-loglevel', 'error',  # Quiet operation
-                    '-i', input_path,  # Input file
-                    '-acodec', 'pcm_s16le',  # 16-bit PCM little-endian
-                    '-ac', '1',  # Force mono (mistral-common expects mono)
-                    '-ar', '16000',  # Force 16kHz sample rate (mistral-common standard)
-                    '-f', 's16le',  # Raw PCM format (no WAV header)
-                    '-'  # Output to stdout
-                ]
-                
-                process = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    timeout=10.0,  # 10 second timeout
-                    check=False
-                )
-                
-                if process.returncode == 0 and len(process.stdout) > 0:
-                    pcm_data = process.stdout
-                    logger.debug(f"✅ FIXED mistral-common compatible conversion: {len(audio_data)} -> {len(pcm_data)} PCM bytes")
-                    return pcm_data
-                
-                # STRATEGY 2: WAV output then extract PCM for mistral-common
-                cmd = [
-                    'ffmpeg', '-y', '-loglevel', 'error',
-                    '-i', input_path,
-                    '-acodec', 'pcm_s16le',
-                    '-ac', '1',
-                    '-ar', '16000',
-                    '-f', 'wav',
-                    '-'
-                ]
-                
-                process = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    timeout=10.0,
-                    check=False
-                )
-                
-                if process.returncode == 0 and len(process.stdout) > 44:
-                    wav_data = process.stdout
-                    if len(wav_data) > 44 and wav_data[:4] == b'RIFF':
-                        pcm_data = wav_data[44:]  # Skip WAV header for mistral-common
-                        logger.debug(f"✅ FIXED Strategy 2 mistral-common: {len(audio_data)} -> {len(pcm_data)} PCM bytes")
-                        return pcm_data
-                
-                # Log conversion failure
-                stderr_msg = process.stderr.decode('utf-8', errors='ignore')[:200] if process.stderr else "No error"
-                logger.debug(f"FFmpeg conversion failed for mistral-common: {stderr_msg}")
-                return None
-                    
-            except subprocess.TimeoutExpired:
-                logger.debug("FFmpeg conversion timed out for mistral-common")
-                return None
-            except Exception as e:
-                logger.debug(f"FFmpeg subprocess error for mistral-common: {e}")
-                return None
-            finally:
-                # Clean up input file
-                try:
-                    os.unlink(input_path)
-                except:
-                    pass
-                    
-        except Exception as e:
-            logger.debug(f"Audio conversion setup error for mistral-common: {e}")
-            return None
-    
-    def _detect_speech_fixed(self, pcm_data: bytes) -> bool:
-        """COMPLETELY FIXED: Perfect speech detection compatible with mistral-common"""
-        try:
-            if len(pcm_data) < 320:  # Less than 20ms at 16kHz
-                return False
+            # Enable optimizations
+            if self.optimize_for_speed:
+                self.model.config.use_cache = True
             
-            # FIXED METHOD 1: WebRTC VAD (most accurate) with proper frame handling
-            if self.vad_enabled and self.vad:
-                try:
-                    # Process in exactly 10ms frames (160 samples = 320 bytes at 16kHz)
-                    frame_bytes = 160 * 2  # 320 bytes for 10ms at 16kHz
-                    speech_frames = 0
-                    total_frames = 0
-                    
-                    for i in range(0, len(pcm_data) - frame_bytes, frame_bytes):
-                        frame = pcm_data[i:i + frame_bytes]
-                        if len(frame) == frame_bytes:
-                            try:
-                                if self.vad.is_speech(frame, self.sample_rate):
-                                    speech_frames += 1
-                            except Exception as e:
-                                logger.debug(f"VAD frame processing error: {e}")
-                                continue
-                            total_frames += 1
-                    
-                    if total_frames > 0:
-                        speech_ratio = speech_frames / total_frames
-                        is_speech = speech_ratio > 0.2  # Lowered for better detection with mistral-common
-                        logger.debug(f"✅ VAD mistral-common compatible: {speech_frames}/{total_frames} = {speech_ratio:.3f} -> {is_speech}")
-                        return is_speech
-                        
-                except Exception as e:
-                    logger.debug(f"VAD processing error for mistral-common: {e}")
-            
-            # FIXED METHOD 2: Enhanced energy-based detection for mistral-common
-            audio_array = np.frombuffer(pcm_data, dtype=np.int16)
-            if len(audio_array) == 0:
-                return False
-            
-            # RMS energy calculation
-            rms_energy = np.sqrt(np.mean(audio_array.astype(np.float64) ** 2))
-            
-            # Zero crossing rate
-            zero_crossings = np.sum(np.diff(np.signbit(audio_array)))
-            zcr_normalized = zero_crossings / max(len(audio_array) - 1, 1)
-            
-            # FIXED: More sensitive thresholds for mistral-common
-            has_energy = rms_energy > self.energy_threshold  # 150.0 (lowered)
-            has_speech_zcr = self.zcr_min <= zcr_normalized <= self.zcr_max  # 0.005-0.4 (widened)
-            
-            # Additional spectral analysis for better detection with mistral-common
-            spectral_centroid = self._calculate_spectral_centroid(audio_array)
-            has_speech_spectrum = 80 <= spectral_centroid <= 8000  # Typical speech range
-            
-            # Combined decision with lower threshold for better sensitivity with mistral-common
-            is_speech = has_energy and (has_speech_zcr or has_speech_spectrum)
-            
-            logger.debug(f"✅ Energy-based mistral-common: energy={rms_energy:.1f} (>{self.energy_threshold}), "
-                        f"zcr={zcr_normalized:.3f} ({self.zcr_min}-{self.zcr_max}), "
-                        f"spectrum={spectral_centroid:.0f} -> {is_speech}")
-            return is_speech
-            
-        except Exception as e:
-            logger.error(f"Speech detection error for mistral-common: {e}")
-            return False
-    
-    def _calculate_spectral_centroid(self, audio_array: np.ndarray) -> float:
-        """Calculate spectral centroid for additional speech detection"""
-        try:
-            # Simple spectral centroid calculation
-            fft = np.abs(np.fft.rfft(audio_array))
-            freqs = np.fft.rfftfreq(len(audio_array), 1/self.sample_rate)
-            
-            # Weighted average of frequencies
-            if np.sum(fft) > 0:
-                centroid = np.sum(freqs * fft) / np.sum(fft)
-                return centroid
-            else:
-                return 0.0
-        except:
-            return 0.0
-    
-    async def _process_complete_speech_segment_mistral_common(self, conn_id: str) -> Dict[str, Any]:
-        """FIXED: Process complete speech segment with mistral-common compatibility"""
-        try:
-            if conn_id not in self.audio_segments or len(self.audio_segments[conn_id]) == 0:
-                return {"error": "No audio data to process"}
-            
-            # Get the complete audio segment
-            complete_audio = bytes(self.audio_segments[conn_id])
-            
-            # FIXED: Create proper WAV file for mistral-common compatibility
-            wav_path = await self._create_wav_file_for_mistral_common(complete_audio)
-            
-            # Calculate metrics
-            duration_ms = len(complete_audio) / 2 / self.sample_rate * 1000
-            speech_quality = self._analyze_speech_quality(complete_audio)
-            
-            # Update statistics
-            self.segments_processed += 1
-            if speech_quality > 0.2:  # Lowered threshold for mistral-common
-                self.speech_segments_detected += 1
-            
-            logger.info(f"✅ FIXED segment complete for mistral-common: {duration_ms:.0f}ms, quality: {speech_quality:.3f}")
-            
-            return {
-                "speech_complete": True,
-                "audio_file_path": wav_path,
-                "duration_ms": duration_ms,
-                "speech_quality": speech_quality,
-                "sample_rate": self.sample_rate,
-                "channels": self.channels,
-                "gap_detected": True,
+            # Store model info
+            self.model_info = {
+                "model_name": self.model_name,
+                "device": str(self.device),
+                "dtype": str(self.torch_dtype),
+                "parameters": self._count_parameters(),
+                "memory_usage": self._get_memory_usage(),
+                "supported_languages": list(self.supported_languages.values()),
+                "language_codes": list(self.supported_languages.keys()),
                 "understanding_only": True,
                 "transcription_disabled": True,
-                "mistral_common_compatible": True,
-                "processed_at": time.time()
+                "huggingface_api": True,
+                "attention_implementation": "eager",
+                "target_response_ms": self.target_response_ms
             }
             
+            self.is_loaded = True
+            logger.info(f"✅ Model loaded successfully!")
+            logger.info(f"✅ Memory usage: {self.model_info['memory_usage']}")
+            
         except Exception as e:
-            logger.error(f"Complete speech segment processing error for mistral-common: {e}")
-            return {"error": f"Speech segment processing failed: {str(e)}"}
+            logger.error(f"❌ Failed to load model: {e}")
+            raise RuntimeError(f"Model loading failed: {e}")
     
-    async def _create_wav_file_for_mistral_common(self, pcm_data: bytes) -> str:
-        """FIXED: Create perfect WAV file for mistral-common compatibility"""
+    async def understand_audio(self, message: Dict[str, Any], context: str = "") -> Dict[str, Any]:
+        """FIXED: Process audio understanding using official HuggingFace Voxtral API"""
+        if not self.is_loaded:
+            return {"error": "Model not loaded"}
+        
+        start_time = time.time()
+        temp_file = None
+        
         try:
-            # Create temporary WAV file
+            # Extract data from message - EXACT as user requested
+            audio_data = message.get("audio")
+            text_query = message.get("text", "What can you hear in this audio?")
+            
+            if not audio_data:
+                return {"error": "No audio data in message"}
+            
+            logger.info(f"🧠 Processing understanding request with query: '{text_query}'")
+            
+            # Convert audio data to file - handles bytes or base64
+            if isinstance(audio_data, str):
+                # Base64 encoded
+                try:
+                    audio_bytes = base64.b64decode(audio_data)
+                except:
+                    return {"error": "Invalid base64 audio data"}
+            else:
+                # Raw bytes
+                audio_bytes = audio_data
+            
+            # Create temporary WAV file for Voxtral
+            temp_file = await self._create_temp_wav_file(audio_bytes)
+            if not temp_file:
+                return {"error": "Failed to create audio file"}
+            
+            # CRITICAL: Use official HuggingFace conversation format
+            conversation = [{
+                "role": "user",
+                "content": [
+                    {"type": "audio", "path": temp_file},
+                    {"type": "text", "text": f"{text_query} {context}".strip()}
+                ]
+            }]
+            
+            # Apply chat template - EXACT as per HuggingFace docs
+            inputs = self.processor.apply_chat_template(
+                conversation,
+                add_generation_prompt=True,
+                return_tensors="pt"
+            )
+            
+            # Move to device
+            inputs = inputs.to(self.device, dtype=self.torch_dtype)
+            
+            # Generate response - optimized settings
+            generation_start = time.time()
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=120 if self.optimize_for_speed else 150,
+                    temperature=0.2 if self.optimize_for_speed else 0.3,
+                    top_p=0.8 if self.optimize_for_speed else 0.9,
+                    do_sample=True,
+                    repetition_penalty=1.05,
+                    use_cache=True,
+                    pad_token_id=self.processor.tokenizer.pad_token_id,
+                    eos_token_id=self.processor.tokenizer.eos_token_id
+                )
+            
+            generation_time = time.time() - generation_start
+            
+            # Decode response - extract only new tokens
+            input_length = inputs.input_ids.shape[1]
+            new_tokens = outputs[0][input_length:]
+            response = self.processor.tokenizer.decode(
+                new_tokens, 
+                skip_special_tokens=True
+            ).strip()
+            
+            total_time = time.time() - start_time
+            
+            # Validate response
+            if not response or len(response.strip()) < 3:
+                response = "I can hear the audio but I'm having trouble generating a detailed response. Could you try again?"
+            
+            result = {
+                "response": response,
+                "transcribed_text": "[Audio processed for understanding]",
+                "processing_time_ms": total_time * 1000,
+                "generation_time_ms": generation_time * 1000,
+                "language": self.default_language,
+                "sub_200ms": total_time * 1000 < 200,
+                "understanding_only": True,
+                "transcription_disabled": True,
+                "huggingface_api": True,
+                "optimize_for_speed": self.optimize_for_speed,
+                "conversation_format": "official"
+            }
+            
+            logger.info(f"✅ Understanding complete: {total_time*1000:.0f}ms ({'✅' if total_time*1000 < 200 else '⚠️'} sub-200ms)")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Understanding processing error: {e}", exc_info=True)
+            return {"error": f"Processing failed: {str(e)}"}
+        finally:
+            # Clean up temp file
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                except:
+                    pass
+    
+    async def _create_temp_wav_file(self, audio_bytes: bytes) -> Optional[str]:
+        """Create temporary WAV file from audio bytes"""
+        try:
+            # Create temp file
             temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
             os.close(temp_fd)
             
-            # Create WAV file with exact format for mistral-common
-            with wave.open(temp_path, 'wb') as wav_file:
-                wav_file.setnchannels(self.channels)  # Mono
-                wav_file.setsampwidth(2)  # 16-bit
-                wav_file.setframerate(self.sample_rate)  # 16kHz
-                wav_file.writeframes(pcm_data)
+            # Try to convert using soundfile first
+            try:
+                # If it's already a valid audio format, read and convert
+                import io
+                audio_data, sample_rate = sf.read(io.BytesIO(audio_bytes))
+                
+                # Ensure mono and 16kHz for Voxtral
+                if len(audio_data.shape) > 1:
+                    audio_data = audio_data.mean(axis=1)
+                
+                if sample_rate != 16000:
+                    from scipy import signal
+                    audio_data = signal.resample(audio_data, int(len(audio_data) * 16000 / sample_rate))
+                
+                # Save as WAV
+                sf.write(temp_path, audio_data, 16000)
+                
+            except:
+                # Fallback: assume it's raw PCM and create WAV
+                import wave
+                with wave.open(temp_path, 'wb') as wav_file:
+                    wav_file.setnchannels(1)  # Mono
+                    wav_file.setsampwidth(2)  # 16-bit
+                    wav_file.setframerate(16000)  # 16kHz
+                    wav_file.writeframes(audio_bytes)
             
-            # Verify created file for mistral-common compatibility
-            file_size = os.path.getsize(temp_path)
-            if file_size < 1000:
-                raise ValueError(f"Created WAV file too small for mistral-common: {file_size} bytes")
+            # Verify file size
+            if os.path.getsize(temp_path) < 1000:
+                raise ValueError("Created audio file too small")
             
-            logger.debug(f"✅ Created mistral-common compatible WAV: {temp_path} ({file_size} bytes)")
             return temp_path
             
         except Exception as e:
-            logger.error(f"WAV file creation error for mistral-common: {e}")
+            logger.error(f"Failed to create temp WAV file: {e}")
             if 'temp_path' in locals() and os.path.exists(temp_path):
                 try:
                     os.unlink(temp_path)
                 except:
                     pass
-            raise RuntimeError(f"WAV file creation failed for mistral-common: {e}")
+            return None
     
-    def _analyze_speech_quality(self, pcm_data: bytes) -> float:
-        """FIXED: Better speech quality analysis for mistral-common"""
+    def _count_parameters(self) -> int:
+        """Count total model parameters"""
+        if self.model is None:
+            return 0
+        return sum(p.numel() for p in self.model.parameters())
+    
+    def _get_memory_usage(self) -> Dict[str, float]:
+        """Get GPU memory usage"""
+        if not torch.cuda.is_available():
+            return {"gpu_memory": 0.0}
+        
         try:
-            if len(pcm_data) == 0:
-                return 0.0
+            allocated = torch.cuda.memory_allocated() / 1024**3
+            cached = torch.cuda.memory_reserved() / 1024**3
+            total = torch.cuda.get_device_properties(0).total_memory / 1024**3
             
-            audio_array = np.frombuffer(pcm_data, dtype=np.int16)
-            
-            # Energy analysis
-            rms_energy = np.sqrt(np.mean(audio_array.astype(np.float64) ** 2))
-            energy_score = min(1.0, rms_energy / 800.0)  # Lowered threshold for mistral-common
-            
-            # Dynamic range analysis
-            max_amplitude = np.max(np.abs(audio_array))
-            dynamic_score = min(1.0, max_amplitude / 8000.0) if max_amplitude > 0 else 0.0  # Lowered for mistral-common
-            
-            # Zero crossing rate analysis
-            zero_crossings = np.sum(np.diff(np.signbit(audio_array)))
-            zcr_normalized = zero_crossings / max(len(audio_array) - 1, 1)
-            zcr_score = 1.0 if 0.005 <= zcr_normalized <= 0.4 else 0.6  # More forgiving for mistral-common
-            
-            # Combined quality score (more generous for mistral-common)
-            quality = (energy_score * 0.4 + dynamic_score * 0.3 + zcr_score * 0.3)
-            
-            return max(0.0, min(1.0, quality))
-            
+            return {
+                "gpu_allocated_gb": round(allocated, 2),
+                "gpu_cached_gb": round(cached, 2),
+                "gpu_total_gb": round(total, 2),
+                "gpu_utilization": round((allocated / total) * 100, 1)
+            }
         except Exception as e:
-            logger.error(f"Speech quality analysis error for mistral-common: {e}")
-            return 0.3  # Default moderate quality for mistral-common
+            logger.error(f"Error getting GPU memory usage: {e}")
+            return {"gpu_memory": 0.0}
     
-    def _reset_connection_buffers(self, conn_id: str):
-        """Reset buffers for a connection after processing"""
-        if conn_id in self.audio_segments:
-            self.audio_segments[conn_id].clear()
-        if conn_id in self.speech_buffers:
-            self.speech_buffers[conn_id].clear()
-        if conn_id in self.silence_counters:
-            self.silence_counters[conn_id] = 0
-    
-    def cleanup_connection(self, websocket):
-        """Cleanup connection data when WebSocket disconnects"""
-        conn_id = id(websocket)
+    async def cleanup(self) -> None:
+        """Cleanup model resources"""
+        logger.info("🧹 Cleaning up model resources...")
         
-        # Clean up all connection data
-        self.audio_segments.pop(conn_id, None)
-        self.speech_buffers.pop(conn_id, None)
-        self.silence_counters.pop(conn_id, None)
-        self.last_audio_time.pop(conn_id, None)
+        if self.model is not None:
+            del self.model
+            self.model = None
         
-        # Clean up temporary files
-        if conn_id in self.temp_files:
-            for temp_file in self.temp_files[conn_id]:
-                try:
-                    if os.path.exists(temp_file):
-                        os.unlink(temp_file)
-                except:
-                    pass
-            self.temp_files.pop(conn_id, None)
+        if self.processor is not None:
+            del self.processor
+            self.processor = None
         
-        logger.info(f"🧹 FIXED audio cleanup for mistral-common connection: {conn_id}")
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get processing statistics"""
-        avg_processing_time = (
-            sum(self.processing_times) / len(self.processing_times)
-            if self.processing_times else 0.0
-        )
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
         
-        speech_detection_rate = (
-            self.speech_segments_detected / max(self.segments_processed, 1)
-        )
-        
-        return {
-            "mode": "COMPLETELY FIXED UNDERSTANDING-ONLY WITH MISTRAL-COMMON",
-            "transcription_disabled": True,
-            "mistral_common_integrated": True,
-            "gap_threshold_ms": self.gap_threshold_ms,
-            "segments_processed": self.segments_processed,
-            "speech_segments_detected": self.speech_segments_detected,
-            "gaps_detected": self.gaps_detected,
-            "speech_detection_rate": round(speech_detection_rate, 3),
-            "sample_rate": self.sample_rate,
-            "channels": self.channels,
-            "vad_enabled": self.vad_enabled,
-            "active_connections": len(self.audio_segments),
-            "avg_processing_time_ms": round(avg_processing_time * 1000, 2),
-            "min_speech_duration_ms": self.min_speech_duration_ms,
-            "max_speech_duration_ms": self.max_speech_duration_ms,
-            "energy_threshold": self.energy_threshold,
-            "zcr_range": f"{self.zcr_min}-{self.zcr_max}",
-            "audio_conversion": "COMPLETELY FIXED with FFmpeg + mistral-common"
-        }
-    
-    def reset(self):
-        """Reset processor state"""
-        self.audio_segments.clear()
-        self.speech_buffers.clear()
-        self.silence_counters.clear()
-        self.last_audio_time.clear()
-        
-        self.segments_processed = 0
-        self.speech_segments_detected = 0
-        self.gaps_detected = 0
-        self.processing_times.clear()
-        
-        logger.info("✅ FIXED audio processor reset with mistral-common")
-    
-    async def cleanup(self):
-        """FIXED: Enhanced cleanup with mistral-common"""
-        logger.info("🧹 Starting FIXED audio processor cleanup with mistral-common...")
-        
-        # Clean up all temporary files
-        for conn_id, temp_files in self.temp_files.items():
-            for temp_file in temp_files:
-                try:
-                    if os.path.exists(temp_file):
-                        os.unlink(temp_file)
-                except:
-                    pass
-        
-        # Reset all buffers
-        self.audio_segments.clear()
-        self.speech_buffers.clear()
-        self.silence_counters.clear()
-        self.last_audio_time.clear()
-        self.temp_files.clear()
-        
-        # Shutdown executor
-        try:
-            self.executor.shutdown(wait=True)
-        except Exception as e:
-            logger.error(f"Executor shutdown error: {e}")
-        
-        logger.info("✅ FIXED audio processor fully cleaned up with mistral-common")
-
-# Backward compatibility alias
-AudioProcessor = UnderstandingAudioProcessor
+        gc.collect()
+        self.is_loaded = False
+        logger.info("✅ Model cleanup completed")
