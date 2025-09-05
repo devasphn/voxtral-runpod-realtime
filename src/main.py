@@ -1,4 +1,4 @@
-# PURE UNDERSTANDING-ONLY MAIN APPLICATION - NO TRANSCRIPTION
+# FIXED: PURE UNDERSTANDING-ONLY MAIN APPLICATION WITH CORRECT INTEGRATIONS
 import asyncio
 import logging
 import signal
@@ -21,13 +21,9 @@ from src.websocket_handler import WebSocketManager
 from src.conversation_manager import ConversationManager
 from src.utils import get_system_info
 
-# FIXED IMPORT - No circular import, PURE UNDERSTANDING-ONLY
-from src.model_loader import VoxtralUnderstandingManager
-
-try:
-    from src.audio_processor import UnderstandingAudioProcessor as AudioProcessor
-except ImportError:
-    from src.audio_processor import AudioProcessor
+# FIXED: Import the corrected components
+from model_loader_fixed import VoxtralUnderstandingManager
+from audio_processor_fixed import UnderstandingAudioProcessor
 
 # Initialize logging
 setup_logging()
@@ -36,11 +32,11 @@ logger = logging.getLogger(__name__)
 # Global settings
 settings = Settings()
 
-# Global managers - PURE UNDERSTANDING-ONLY (NO TRANSCRIPTION)
+# FIXED: Global managers with correct implementations
 model_manager = None
 ws_manager = WebSocketManager()
 conversation_manager = ConversationManager(max_turns=30, context_window_minutes=15)
-audio_processor = AudioProcessor(
+audio_processor = UnderstandingAudioProcessor(
     sample_rate=16000,
     channels=1,
     gap_threshold_ms=300,  # 0.3 second gap detection
@@ -60,11 +56,11 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """PURE UNDERSTANDING-ONLY: Application lifespan with proper cleanup"""
+    """FIXED: Application lifespan with proper cleanup"""
     global model_manager
     
     # Startup
-    logger.info("🚀 Starting PURE UNDERSTANDING-ONLY Voxtral Real-Time Server...")
+    logger.info("🚀 Starting FIXED Voxtral Real-Time Server...")
     logger.info("🚫 Transcription functionality: COMPLETELY DISABLED")
     
     try:
@@ -74,10 +70,10 @@ async def lifespan(app: FastAPI):
             torch_dtype=settings.TORCH_DTYPE
         )
         await model_manager.load_model()
-        logger.info("✅ PURE UNDERSTANDING-ONLY model loaded successfully!")
+        logger.info("✅ FIXED model loaded successfully!")
     except Exception as e:
-        logger.error(f"❌ Failed to load PURE UNDERSTANDING-ONLY model: {e}")
-        raise RuntimeError(f"PURE UNDERSTANDING-ONLY model loading failed: {e}")
+        logger.error(f"❌ Failed to load FIXED model: {e}")
+        raise RuntimeError(f"FIXED model loading failed: {e}")
     
     # Start background cleanup
     cleanup_task = asyncio.create_task(background_cleanup())
@@ -85,7 +81,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    logger.info("🛑 Shutting down PURE UNDERSTANDING-ONLY server...")
+    logger.info("🛑 Shutting down FIXED server...")
     shutdown_event.set()
     
     # Cancel background tasks
@@ -100,7 +96,7 @@ async def lifespan(app: FastAPI):
         await model_manager.cleanup()
     await audio_processor.cleanup()
     
-    logger.info("✅ PURE UNDERSTANDING-ONLY graceful shutdown completed")
+    logger.info("✅ FIXED graceful shutdown completed")
 
 async def background_cleanup():
     """Background maintenance tasks"""
@@ -108,17 +104,17 @@ async def background_cleanup():
         try:
             await asyncio.sleep(300)  # Every 5 minutes
             active_connections = ws_manager.connection_count
-            logger.debug(f"🔄 PURE UNDERSTANDING-ONLY background cleanup: {active_connections} active")
+            logger.debug(f"🔄 FIXED background cleanup: {active_connections} active")
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error(f"PURE UNDERSTANDING-ONLY background cleanup error: {e}")
+            logger.error(f"FIXED background cleanup error: {e}")
 
 # Create FastAPI app
 app = FastAPI(
-    title="Voxtral Mini 3B - PURE UNDERSTANDING-ONLY Real-Time API",
-    description="PURE UNDERSTANDING-ONLY system with 0.3s gap detection and sub-200ms response",
-    version="2.0.0-PURE-UNDERSTANDING-ONLY",
+    title="Voxtral Mini 3B - FIXED Real-Time API",
+    description="FIXED system with proper WebM processing and correct Voxtral API usage",
+    version="3.0.0-FIXED",
     lifespan=lifespan
 )
 
@@ -127,21 +123,21 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def root():
-    """Serve the main PURE UNDERSTANDING-ONLY client page"""
+    """Serve the main FIXED client page"""
     with open("static/index.html", "r") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
 
 @app.get("/health")
 async def health_check():
-    """PURE UNDERSTANDING-ONLY: Health check endpoint"""
+    """FIXED: Health check endpoint"""
     try:
         system_info = get_system_info()
         model_status = "loaded" if model_manager and model_manager.is_loaded else "not_loaded"
         
         return {
             "status": "healthy",
-            "mode": "PURE UNDERSTANDING-ONLY",
+            "mode": "FIXED UNDERSTANDING-ONLY",
             "transcription_status": "COMPLETELY DISABLED",
             "model_status": model_status,
             "active_connections": ws_manager.connection_count,
@@ -149,29 +145,30 @@ async def health_check():
             "gap_detection_ms": 300,
             "target_response_ms": 200,
             "flash_attention": "DISABLED (compatibility fix)",
+            "webm_processing": "FIXED with FFmpeg",
+            "voxtral_api": "FIXED with correct methods",
             "features": [
-                "✅ PURE UNDERSTANDING-ONLY mode with conversational AI responses",
-                "🚫 Transcription functionality: COMPLETELY DISABLED",
-                "✅ 0.3-second gap detection using WebRTC VAD",
-                "✅ Sub-200ms response time optimization",
-                "✅ Continuous audio processing with speech boundaries",
-                "✅ Context-aware conversation memory",
-                "✅ Enhanced audio processing for human speech",
-                "✅ Flash Attention compatibility fix applied"
+                "✅ FIXED WebM to PCM conversion using FFmpeg",
+                "✅ FIXED VAD integration with proper audio format",
+                "✅ FIXED Voxtral API usage (apply_transcription_request + apply_chat_template)",
+                "✅ FIXED audio file handling for model input",
+                "✅ Enhanced error handling and cleanup",
+                "🚫 Transcription functionality: COMPLETELY DISABLED"
             ],
             "system": system_info,
             "shutdown_requested": shutdown_event.is_set(),
             "timestamp": asyncio.get_event_loop().time(),
             "understanding_only": True,
-            "transcription_disabled": True
+            "transcription_disabled": True,
+            "fixes_applied": True
         }
     except Exception as e:
-        logger.error(f"PURE UNDERSTANDING-ONLY health check failed: {e}")
+        logger.error(f"FIXED health check failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/model/info")
 async def model_info():
-    """PURE UNDERSTANDING-ONLY: Model information"""
+    """FIXED: Model information"""
     if not model_manager or not model_manager.is_loaded:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
@@ -181,25 +178,37 @@ async def model_info():
         "device": str(settings.DEVICE),
         "dtype": str(settings.TORCH_DTYPE),
         "context_length": "32K tokens",
-        "mode": "PURE UNDERSTANDING-ONLY",
+        "mode": "FIXED UNDERSTANDING-ONLY",
         "transcription_status": "COMPLETELY DISABLED",
         "gap_detection_ms": 300,
         "target_response_ms": 200,
         "flash_attention_status": "DISABLED (compatibility fix)",
+        "webm_processing": "FIXED with FFmpeg",
+        "voxtral_api": "FIXED with correct methods",
         "understanding_only": True,
         "transcription_disabled": True,
+        "fixes_applied": True,
         "supported_languages": [
             "English (en)", "Spanish (es)", "French (fr)", "Portuguese (pt)", 
             "Hindi (hi)", "German (de)", "Dutch (nl)", "Italian (it)"
         ],
         "features": {
+            "webm_conversion": {
+                "method": "FFmpeg",
+                "status": "FIXED",
+                "formats": ["WebM → WAV → PCM"],
+                "vad_compatible": True
+            },
             "gap_detection": {
                 "threshold_ms": 300,
-                "method": "WebRTC VAD",
+                "method": "WebRTC VAD + Energy Analysis",
+                "status": "FIXED",
                 "automatic": True
             },
             "understanding": {
                 "purpose": "Conversational AI responses to audio input",
+                "api_method": "apply_transcription_request + apply_chat_template",
+                "status": "FIXED",
                 "temperature": 0.3,
                 "max_tokens": 200,
                 "context_memory": True
@@ -207,6 +216,7 @@ async def model_info():
             "performance": {
                 "target_response_ms": 200,
                 "optimization": "Eager Attention (Flash Attention disabled)",
+                "status": "OPTIMIZED",
                 "caching": True
             },
             "transcription": {
@@ -217,19 +227,20 @@ async def model_info():
         "audio_processing": {
             "sample_rate": 16000,
             "channels": 1,
-            "format": "WebM → PCM → WAV",
-            "vad_enabled": True
+            "format": "WebM → FFmpeg → WAV → PCM",
+            "vad_enabled": True,
+            "status": "FIXED"
         }
     }
 
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
-    """PURE UNDERSTANDING-ONLY: Single WebSocket endpoint for conversational AI"""
+    """FIXED: WebSocket endpoint for conversational AI with proper processing"""
     await ws_manager.connect(websocket, "understand")
     conversation_manager.start_conversation(websocket)
     
     try:
-        logger.info("🧠 PURE UNDERSTANDING-ONLY session started")
+        logger.info("🧠 FIXED UNDERSTANDING session started")
         
         while not shutdown_event.is_set():
             try:
@@ -245,16 +256,17 @@ async def websocket_understand(websocket: WebSocket):
                     logger.debug("Invalid/insufficient audio data received")
                     continue
                 
-                # Process through PURE UNDERSTANDING-ONLY audio processor
+                # FIXED: Process through corrected audio processor
                 result = await audio_processor.process_audio_understanding(audio_data, websocket)
                 
                 if result and isinstance(result, dict):
                     if "error" in result:
-                        logger.error(f"PURE UNDERSTANDING-ONLY audio processing error: {result['error']}")
+                        logger.error(f"FIXED audio processing error: {result['error']}")
                         await websocket.send_json({
                             "error": f"Audio processing failed: {result['error']}", 
                             "understanding_only": True,
-                            "transcription_disabled": True
+                            "transcription_disabled": True,
+                            "fixes_applied": True
                         })
                         continue
                     
@@ -270,26 +282,27 @@ async def websocket_understand(websocket: WebSocket):
                             "speech_detected": result.get("speech_detected", False),
                             "speech_ratio": result.get("speech_ratio", 0),
                             "understanding_only": True,
-                            "transcription_disabled": True
+                            "transcription_disabled": True,
+                            "fixes_applied": True
                         })
                         continue
                     
-                    # Process complete speech segment
-                    if result.get("speech_complete") and "audio_data" in result:
+                    # FIXED: Process complete speech segment
+                    if result.get("speech_complete") and "audio_file_path" in result:
                         duration_ms = result.get("duration_ms", 0)
                         speech_quality = result.get("speech_quality", 0)
                         
                         # Quality check for understanding
                         if duration_ms > 500 and speech_quality > 0.3:  # At least 0.5s, decent quality
-                            logger.info(f"🧠 PURE UNDERSTANDING-ONLY processing: {duration_ms:.0f}ms, quality: {speech_quality:.3f}")
+                            logger.info(f"🧠 FIXED processing: {duration_ms:.0f}ms, quality: {speech_quality:.3f}")
                             
                             if model_manager and model_manager.is_loaded:
                                 # Get conversation context
                                 context = conversation_manager.get_conversation_context(websocket)
                                 
-                                # Generate understanding response
+                                # FIXED: Generate understanding response using correct API
                                 understanding_result = await model_manager.generate_understanding_response(
-                                    result["audio_data"], 
+                                    result["audio_file_path"], 
                                     context=context,
                                     optimize_for_speed=True
                                 )
@@ -326,6 +339,8 @@ async def websocket_understand(websocket: WebSocket):
                                         "understanding_only": True,
                                         "transcription_disabled": True,
                                         "flash_attention_disabled": True,
+                                        "fixes_applied": True,
+                                        "model_api_fixed": understanding_result.get("model_api_fixed", False),
                                         "sub_200ms": response_time_ms < 200,
                                         "timestamp": asyncio.get_event_loop().time()
                                     }
@@ -335,19 +350,21 @@ async def websocket_understand(websocket: WebSocket):
                                     final_result["conversation"] = conv_stats
                                     
                                     await websocket.send_json(final_result)
-                                    logger.info(f"✅ PURE UNDERSTANDING-ONLY complete: '{understanding_result['response'][:50]}...' ({response_time_ms:.0f}ms)")
+                                    logger.info(f"✅ FIXED UNDERSTANDING complete: '{understanding_result['response'][:50]}...' ({response_time_ms:.0f}ms)")
                                 else:
                                     logger.warning(f"Invalid understanding result: {understanding_result}")
                                     await websocket.send_json({
                                         "error": "Failed to generate understanding response",
                                         "understanding_only": True,
-                                        "transcription_disabled": True
+                                        "transcription_disabled": True,
+                                        "fixes_applied": True
                                     })
                             else:
                                 await websocket.send_json({
                                     "error": "Model not loaded",
                                     "understanding_only": True,
-                                    "transcription_disabled": True
+                                    "transcription_disabled": True,
+                                    "fixes_applied": True
                                 })
                         else:
                             logger.debug(f"Skipping low quality: duration={duration_ms:.0f}ms, quality={speech_quality:.3f}")
@@ -355,23 +372,25 @@ async def websocket_understand(websocket: WebSocket):
             except WebSocketDisconnect:
                 break
             except Exception as inner_e:
-                logger.error(f"PURE UNDERSTANDING-ONLY inner WebSocket error: {inner_e}", exc_info=True)
+                logger.error(f"FIXED inner WebSocket error: {inner_e}", exc_info=True)
                 try:
                     if not shutdown_event.is_set():
                         await websocket.send_json({
                             "error": f"Processing error: {str(inner_e)}",
                             "understanding_only": True,
-                            "transcription_disabled": True
+                            "transcription_disabled": True,
+                            "fixes_applied": True
                         })
                 except:
                     break
                         
     except WebSocketDisconnect:
-        logger.info("PURE UNDERSTANDING-ONLY WebSocket disconnected")
+        logger.info("FIXED WebSocket disconnected")
     except Exception as e:
-        logger.error(f"PURE UNDERSTANDING-ONLY WebSocket error: {e}")
+        logger.error(f"FIXED WebSocket error: {e}")
     finally:
         conversation_manager.cleanup_conversation(websocket)
+        audio_processor.cleanup_connection(websocket)
         ws_manager.disconnect(websocket)
 
 @app.get("/conversations")
@@ -389,7 +408,7 @@ async def get_conversations():
             }
     
     return {
-        "mode": "PURE UNDERSTANDING-ONLY",
+        "mode": "FIXED UNDERSTANDING-ONLY",
         "transcription_status": "COMPLETELY DISABLED",
         "active_conversations": len(active_conversations),
         "total_ws_connections": ws_manager.connection_count,
@@ -400,10 +419,12 @@ async def get_conversations():
             "audio_processor_stats": audio_processor.get_stats(),
             "gap_detection_ms": 300,
             "target_response_ms": 200,
-            "flash_attention_disabled": True
+            "flash_attention_disabled": True,
+            "fixes_applied": True
         },
         "understanding_only": True,
-        "transcription_disabled": True
+        "transcription_disabled": True,
+        "fixes_applied": True
     }
 
 @app.post("/conversations/reset")
@@ -417,15 +438,25 @@ async def reset_conversations():
     return {
         "status": "All conversations and audio processor reset successfully",
         "understanding_only": True,
-        "transcription_disabled": True
+        "transcription_disabled": True,
+        "fixes_applied": True
     }
 
-@app.get("/debug/understanding-only")
-async def debug_understanding_only():
-    """PURE UNDERSTANDING-ONLY: Enhanced debug information"""
+@app.get("/debug/fixed")
+async def debug_fixed():
+    """FIXED: Enhanced debug information"""
     return {
-        "mode": "PURE UNDERSTANDING-ONLY",
+        "mode": "FIXED UNDERSTANDING-ONLY",
         "transcription_status": "COMPLETELY DISABLED",
+        "fixes_applied": [
+            "✅ WebM to PCM conversion using FFmpeg",
+            "✅ Proper VAD integration with correct audio format",
+            "✅ Correct Voxtral API usage (apply_transcription_request + apply_chat_template)",
+            "✅ Fixed audio file handling for model input",
+            "✅ Enhanced error handling and cleanup",
+            "✅ Temporary file management",
+            "✅ Flash Attention compatibility fix"
+        ],
         "conversation_manager": {
             "active_sessions": len(conversation_manager.conversations),
             "language_patterns": {k: v[-3:] for k, v in conversation_manager.language_patterns.items()},
@@ -437,28 +468,21 @@ async def debug_understanding_only():
             "memory_usage": model_manager._get_memory_usage() if model_manager and model_manager.is_loaded else {},
             "supported_languages": model_manager.supported_languages if model_manager else {},
             "default_language": getattr(model_manager, 'default_language', 'en') if model_manager else 'en',
-            "flash_attention_disabled": True
+            "flash_attention_disabled": True,
+            "api_fixed": True
         },
         "system_status": {
             "shutdown_requested": shutdown_event.is_set(),
             "background_tasks_active": not shutdown_event.is_set(),
             "gap_detection_ms": 300,
             "target_response_ms": 200,
-            "flash_attention_fix_applied": True
+            "flash_attention_fix_applied": True,
+            "webm_processing_fixed": True,
+            "voxtral_api_fixed": True
         },
-        "pure_understanding_only_features": [
-            "✅ Single WebSocket endpoint: /ws/understand",
-            "🚫 Transcription endpoints: COMPLETELY REMOVED",
-            "✅ 0.3-second gap detection with WebRTC VAD",
-            "✅ Sub-200ms response time optimization", 
-            "✅ Conversational AI responses with context memory",
-            "✅ Enhanced audio processing for human speech",
-            "✅ Continuous recording with automatic speech boundaries",
-            "✅ Real-time feedback with gap detection status",
-            "✅ Flash Attention compatibility fix applied"
-        ],
         "understanding_only": True,
-        "transcription_disabled": True
+        "transcription_disabled": True,
+        "fixes_applied": True
     }
 
 if __name__ == "__main__":
@@ -473,7 +497,7 @@ if __name__ == "__main__":
             timeout_graceful_shutdown=30
         )
     except KeyboardInterrupt:
-        logger.info("🛑 PURE UNDERSTANDING-ONLY server stopped by user")
+        logger.info("🛑 FIXED server stopped by user")
     except Exception as e:
-        logger.error(f"❌ PURE UNDERSTANDING-ONLY server error: {e}")
+        logger.error(f"❌ FIXED server error: {e}")
         sys.exit(1)
