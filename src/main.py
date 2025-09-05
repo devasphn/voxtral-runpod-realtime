@@ -1,4 +1,4 @@
-# UNDERSTANDING-ONLY MAIN APPLICATION - FIXED IMPORTS
+# PURE UNDERSTANDING-ONLY MAIN APPLICATION - NO TRANSCRIPTION
 import asyncio
 import logging
 import signal
@@ -21,7 +21,7 @@ from src.websocket_handler import WebSocketManager
 from src.conversation_manager import ConversationManager
 from src.utils import get_system_info
 
-# FIXED IMPORT - No circular import
+# FIXED IMPORT - No circular import, PURE UNDERSTANDING-ONLY
 from src.model_loader import VoxtralUnderstandingManager
 
 try:
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Global settings
 settings = Settings()
 
-# Global managers - UNDERSTANDING-ONLY
+# Global managers - PURE UNDERSTANDING-ONLY (NO TRANSCRIPTION)
 model_manager = None
 ws_manager = WebSocketManager()
 conversation_manager = ConversationManager(max_turns=30, context_window_minutes=15)
@@ -60,11 +60,12 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """UNDERSTANDING-ONLY: Application lifespan with proper cleanup"""
+    """PURE UNDERSTANDING-ONLY: Application lifespan with proper cleanup"""
     global model_manager
     
     # Startup
-    logger.info("🚀 Starting UNDERSTANDING-ONLY Voxtral Real-Time Server...")
+    logger.info("🚀 Starting PURE UNDERSTANDING-ONLY Voxtral Real-Time Server...")
+    logger.info("🚫 Transcription functionality: COMPLETELY DISABLED")
     
     try:
         model_manager = VoxtralUnderstandingManager(
@@ -73,10 +74,10 @@ async def lifespan(app: FastAPI):
             torch_dtype=settings.TORCH_DTYPE
         )
         await model_manager.load_model()
-        logger.info("✅ UNDERSTANDING-ONLY model loaded successfully!")
+        logger.info("✅ PURE UNDERSTANDING-ONLY model loaded successfully!")
     except Exception as e:
-        logger.error(f"❌ Failed to load UNDERSTANDING-ONLY model: {e}")
-        raise RuntimeError(f"UNDERSTANDING-ONLY model loading failed: {e}")
+        logger.error(f"❌ Failed to load PURE UNDERSTANDING-ONLY model: {e}")
+        raise RuntimeError(f"PURE UNDERSTANDING-ONLY model loading failed: {e}")
     
     # Start background cleanup
     cleanup_task = asyncio.create_task(background_cleanup())
@@ -84,7 +85,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    logger.info("🛑 Shutting down UNDERSTANDING-ONLY server...")
+    logger.info("🛑 Shutting down PURE UNDERSTANDING-ONLY server...")
     shutdown_event.set()
     
     # Cancel background tasks
@@ -99,7 +100,7 @@ async def lifespan(app: FastAPI):
         await model_manager.cleanup()
     await audio_processor.cleanup()
     
-    logger.info("✅ UNDERSTANDING-ONLY graceful shutdown completed")
+    logger.info("✅ PURE UNDERSTANDING-ONLY graceful shutdown completed")
 
 async def background_cleanup():
     """Background maintenance tasks"""
@@ -107,17 +108,17 @@ async def background_cleanup():
         try:
             await asyncio.sleep(300)  # Every 5 minutes
             active_connections = ws_manager.connection_count
-            logger.debug(f"🔄 UNDERSTANDING-ONLY background cleanup: {active_connections} active")
+            logger.debug(f"🔄 PURE UNDERSTANDING-ONLY background cleanup: {active_connections} active")
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error(f"UNDERSTANDING-ONLY background cleanup error: {e}")
+            logger.error(f"PURE UNDERSTANDING-ONLY background cleanup error: {e}")
 
 # Create FastAPI app
 app = FastAPI(
-    title="Voxtral Mini 3B - UNDERSTANDING-ONLY Real-Time API",
-    description="UNDERSTANDING-ONLY system with 0.3s gap detection and sub-200ms response",
-    version="2.0.0-UNDERSTANDING-ONLY",
+    title="Voxtral Mini 3B - PURE UNDERSTANDING-ONLY Real-Time API",
+    description="PURE UNDERSTANDING-ONLY system with 0.3s gap detection and sub-200ms response",
+    version="2.0.0-PURE-UNDERSTANDING-ONLY",
     lifespan=lifespan
 )
 
@@ -126,46 +127,51 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def root():
-    """Serve the main UNDERSTANDING-ONLY client page"""
+    """Serve the main PURE UNDERSTANDING-ONLY client page"""
     with open("static/index.html", "r") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
 
 @app.get("/health")
 async def health_check():
-    """UNDERSTANDING-ONLY: Health check endpoint"""
+    """PURE UNDERSTANDING-ONLY: Health check endpoint"""
     try:
         system_info = get_system_info()
         model_status = "loaded" if model_manager and model_manager.is_loaded else "not_loaded"
         
         return {
             "status": "healthy",
-            "mode": "UNDERSTANDING-ONLY",
+            "mode": "PURE UNDERSTANDING-ONLY",
+            "transcription_status": "COMPLETELY DISABLED",
             "model_status": model_status,
             "active_connections": ws_manager.connection_count,
             "conversation_sessions": len(conversation_manager.conversations),
             "gap_detection_ms": 300,
             "target_response_ms": 200,
+            "flash_attention": "DISABLED (compatibility fix)",
             "features": [
-                "✅ UNDERSTANDING-ONLY mode with conversational AI responses",
+                "✅ PURE UNDERSTANDING-ONLY mode with conversational AI responses",
+                "🚫 Transcription functionality: COMPLETELY DISABLED",
                 "✅ 0.3-second gap detection using WebRTC VAD",
                 "✅ Sub-200ms response time optimization",
                 "✅ Continuous audio processing with speech boundaries",
                 "✅ Context-aware conversation memory",
-                "✅ Enhanced audio processing for human speech"
+                "✅ Enhanced audio processing for human speech",
+                "✅ Flash Attention compatibility fix applied"
             ],
             "system": system_info,
             "shutdown_requested": shutdown_event.is_set(),
             "timestamp": asyncio.get_event_loop().time(),
-            "understanding_only": True
+            "understanding_only": True,
+            "transcription_disabled": True
         }
     except Exception as e:
-        logger.error(f"UNDERSTANDING-ONLY health check failed: {e}")
+        logger.error(f"PURE UNDERSTANDING-ONLY health check failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/model/info")
 async def model_info():
-    """UNDERSTANDING-ONLY: Model information"""
+    """PURE UNDERSTANDING-ONLY: Model information"""
     if not model_manager or not model_manager.is_loaded:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
@@ -175,10 +181,13 @@ async def model_info():
         "device": str(settings.DEVICE),
         "dtype": str(settings.TORCH_DTYPE),
         "context_length": "32K tokens",
-        "mode": "UNDERSTANDING-ONLY",
+        "mode": "PURE UNDERSTANDING-ONLY",
+        "transcription_status": "COMPLETELY DISABLED",
         "gap_detection_ms": 300,
         "target_response_ms": 200,
+        "flash_attention_status": "DISABLED (compatibility fix)",
         "understanding_only": True,
+        "transcription_disabled": True,
         "supported_languages": [
             "English (en)", "Spanish (es)", "French (fr)", "Portuguese (pt)", 
             "Hindi (hi)", "German (de)", "Dutch (nl)", "Italian (it)"
@@ -197,8 +206,12 @@ async def model_info():
             },
             "performance": {
                 "target_response_ms": 200,
-                "optimization": "Flash Attention 2.0",
+                "optimization": "Eager Attention (Flash Attention disabled)",
                 "caching": True
+            },
+            "transcription": {
+                "status": "COMPLETELY DISABLED",
+                "reason": "Pure understanding-only implementation"
             }
         },
         "audio_processing": {
@@ -211,12 +224,12 @@ async def model_info():
 
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
-    """UNDERSTANDING-ONLY: WebSocket endpoint for conversational AI"""
+    """PURE UNDERSTANDING-ONLY: Single WebSocket endpoint for conversational AI"""
     await ws_manager.connect(websocket, "understand")
     conversation_manager.start_conversation(websocket)
     
     try:
-        logger.info("🧠 UNDERSTANDING-ONLY session started")
+        logger.info("🧠 PURE UNDERSTANDING-ONLY session started")
         
         while not shutdown_event.is_set():
             try:
@@ -232,15 +245,16 @@ async def websocket_understand(websocket: WebSocket):
                     logger.debug("Invalid/insufficient audio data received")
                     continue
                 
-                # Process through UNDERSTANDING-ONLY audio processor
+                # Process through PURE UNDERSTANDING-ONLY audio processor
                 result = await audio_processor.process_audio_understanding(audio_data, websocket)
                 
                 if result and isinstance(result, dict):
                     if "error" in result:
-                        logger.error(f"UNDERSTANDING-ONLY audio processing error: {result['error']}")
+                        logger.error(f"PURE UNDERSTANDING-ONLY audio processing error: {result['error']}")
                         await websocket.send_json({
                             "error": f"Audio processing failed: {result['error']}", 
-                            "understanding_only": True
+                            "understanding_only": True,
+                            "transcription_disabled": True
                         })
                         continue
                     
@@ -251,20 +265,23 @@ async def websocket_understand(websocket: WebSocket):
                             "audio_received": True,
                             "segment_duration_ms": result.get("segment_duration_ms", 0),
                             "silence_duration_ms": result.get("silence_duration_ms", 0),
+                            "remaining_to_gap_ms": result.get("remaining_to_gap_ms", 0),
                             "gap_will_trigger_at_ms": result.get("gap_will_trigger_at_ms", 300),
+                            "speech_detected": result.get("speech_detected", False),
                             "speech_ratio": result.get("speech_ratio", 0),
-                            "understanding_only": True
+                            "understanding_only": True,
+                            "transcription_disabled": True
                         })
                         continue
                     
                     # Process complete speech segment
                     if result.get("speech_complete") and "audio_data" in result:
                         duration_ms = result.get("duration_ms", 0)
-                        speech_ratio = result.get("speech_ratio", 0)
+                        speech_quality = result.get("speech_quality", 0)
                         
                         # Quality check for understanding
-                        if duration_ms > 500 and speech_ratio > 0.3:  # At least 0.5s, decent quality
-                            logger.info(f"🧠 UNDERSTANDING-ONLY processing: {duration_ms:.0f}ms, quality: {speech_ratio:.3f}")
+                        if duration_ms > 500 and speech_quality > 0.3:  # At least 0.5s, decent quality
+                            logger.info(f"🧠 PURE UNDERSTANDING-ONLY processing: {duration_ms:.0f}ms, quality: {speech_quality:.3f}")
                             
                             if model_manager and model_manager.is_loaded:
                                 # Get conversation context
@@ -291,7 +308,7 @@ async def websocket_understand(websocket: WebSocket):
                                         transcription=transcribed_text,
                                         response=understanding_result["response"],
                                         audio_duration=duration_ms / 1000,
-                                        speech_ratio=speech_ratio,
+                                        speech_ratio=speech_quality,
                                         mode="understand",
                                         language=understanding_result.get("language", "en")
                                     )
@@ -303,10 +320,12 @@ async def websocket_understand(websocket: WebSocket):
                                         "response": understanding_result["response"],
                                         "response_time_ms": response_time_ms,
                                         "audio_duration_ms": duration_ms,
-                                        "speech_quality": speech_ratio,
+                                        "speech_quality": speech_quality,
                                         "gap_detected": result.get("gap_detected", False),
                                         "language": understanding_result.get("language", "en"),
                                         "understanding_only": True,
+                                        "transcription_disabled": True,
+                                        "flash_attention_disabled": True,
                                         "sub_200ms": response_time_ms < 200,
                                         "timestamp": asyncio.get_event_loop().time()
                                     }
@@ -316,38 +335,41 @@ async def websocket_understand(websocket: WebSocket):
                                     final_result["conversation"] = conv_stats
                                     
                                     await websocket.send_json(final_result)
-                                    logger.info(f"✅ UNDERSTANDING-ONLY complete: '{understanding_result['response'][:50]}...' ({response_time_ms:.0f}ms)")
+                                    logger.info(f"✅ PURE UNDERSTANDING-ONLY complete: '{understanding_result['response'][:50]}...' ({response_time_ms:.0f}ms)")
                                 else:
                                     logger.warning(f"Invalid understanding result: {understanding_result}")
                                     await websocket.send_json({
                                         "error": "Failed to generate understanding response",
-                                        "understanding_only": True
+                                        "understanding_only": True,
+                                        "transcription_disabled": True
                                     })
                             else:
                                 await websocket.send_json({
                                     "error": "Model not loaded",
-                                    "understanding_only": True
+                                    "understanding_only": True,
+                                    "transcription_disabled": True
                                 })
                         else:
-                            logger.debug(f"Skipping low quality: duration={duration_ms:.0f}ms, quality={speech_ratio:.3f}")
+                            logger.debug(f"Skipping low quality: duration={duration_ms:.0f}ms, quality={speech_quality:.3f}")
                     
             except WebSocketDisconnect:
                 break
             except Exception as inner_e:
-                logger.error(f"UNDERSTANDING-ONLY inner WebSocket error: {inner_e}", exc_info=True)
+                logger.error(f"PURE UNDERSTANDING-ONLY inner WebSocket error: {inner_e}", exc_info=True)
                 try:
                     if not shutdown_event.is_set():
                         await websocket.send_json({
                             "error": f"Processing error: {str(inner_e)}",
-                            "understanding_only": True
+                            "understanding_only": True,
+                            "transcription_disabled": True
                         })
                 except:
                     break
                         
     except WebSocketDisconnect:
-        logger.info("UNDERSTANDING-ONLY WebSocket disconnected")
+        logger.info("PURE UNDERSTANDING-ONLY WebSocket disconnected")
     except Exception as e:
-        logger.error(f"UNDERSTANDING-ONLY WebSocket error: {e}")
+        logger.error(f"PURE UNDERSTANDING-ONLY WebSocket error: {e}")
     finally:
         conversation_manager.cleanup_conversation(websocket)
         ws_manager.disconnect(websocket)
@@ -367,7 +389,8 @@ async def get_conversations():
             }
     
     return {
-        "mode": "UNDERSTANDING-ONLY",
+        "mode": "PURE UNDERSTANDING-ONLY",
+        "transcription_status": "COMPLETELY DISABLED",
         "active_conversations": len(active_conversations),
         "total_ws_connections": ws_manager.connection_count,
         "conversation_details": active_conversations,
@@ -376,9 +399,11 @@ async def get_conversations():
             "context_window_minutes": conversation_manager.context_window.total_seconds() / 60,
             "audio_processor_stats": audio_processor.get_stats(),
             "gap_detection_ms": 300,
-            "target_response_ms": 200
+            "target_response_ms": 200,
+            "flash_attention_disabled": True
         },
-        "understanding_only": True
+        "understanding_only": True,
+        "transcription_disabled": True
     }
 
 @app.post("/conversations/reset")
@@ -391,14 +416,16 @@ async def reset_conversations():
     
     return {
         "status": "All conversations and audio processor reset successfully",
-        "understanding_only": True
+        "understanding_only": True,
+        "transcription_disabled": True
     }
 
 @app.get("/debug/understanding-only")
 async def debug_understanding_only():
-    """UNDERSTANDING-ONLY: Enhanced debug information"""
+    """PURE UNDERSTANDING-ONLY: Enhanced debug information"""
     return {
-        "mode": "UNDERSTANDING-ONLY",
+        "mode": "PURE UNDERSTANDING-ONLY",
+        "transcription_status": "COMPLETELY DISABLED",
         "conversation_manager": {
             "active_sessions": len(conversation_manager.conversations),
             "language_patterns": {k: v[-3:] for k, v in conversation_manager.language_patterns.items()},
@@ -409,24 +436,29 @@ async def debug_understanding_only():
             "loaded": model_manager.is_loaded if model_manager else False,
             "memory_usage": model_manager._get_memory_usage() if model_manager and model_manager.is_loaded else {},
             "supported_languages": model_manager.supported_languages if model_manager else {},
-            "default_language": getattr(model_manager, 'default_language', 'en') if model_manager else 'en'
+            "default_language": getattr(model_manager, 'default_language', 'en') if model_manager else 'en',
+            "flash_attention_disabled": True
         },
         "system_status": {
             "shutdown_requested": shutdown_event.is_set(),
             "background_tasks_active": not shutdown_event.is_set(),
             "gap_detection_ms": 300,
-            "target_response_ms": 200
+            "target_response_ms": 200,
+            "flash_attention_fix_applied": True
         },
-        "understanding_only_features": [
+        "pure_understanding_only_features": [
             "✅ Single WebSocket endpoint: /ws/understand",
+            "🚫 Transcription endpoints: COMPLETELY REMOVED",
             "✅ 0.3-second gap detection with WebRTC VAD",
             "✅ Sub-200ms response time optimization", 
             "✅ Conversational AI responses with context memory",
             "✅ Enhanced audio processing for human speech",
             "✅ Continuous recording with automatic speech boundaries",
-            "✅ Real-time feedback with gap detection status"
+            "✅ Real-time feedback with gap detection status",
+            "✅ Flash Attention compatibility fix applied"
         ],
-        "understanding_only": True
+        "understanding_only": True,
+        "transcription_disabled": True
     }
 
 if __name__ == "__main__":
@@ -441,7 +473,7 @@ if __name__ == "__main__":
             timeout_graceful_shutdown=30
         )
     except KeyboardInterrupt:
-        logger.info("🛑 UNDERSTANDING-ONLY server stopped by user")
+        logger.info("🛑 PURE UNDERSTANDING-ONLY server stopped by user")
     except Exception as e:
-        logger.error(f"❌ UNDERSTANDING-ONLY server error: {e}")
+        logger.error(f"❌ PURE UNDERSTANDING-ONLY server error: {e}")
         sys.exit(1)
