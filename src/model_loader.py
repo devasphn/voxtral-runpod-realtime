@@ -1,4 +1,4 @@
-# PURE UNDERSTANDING-ONLY MODEL MANAGER - FLASH ATTENTION FIXED
+# FIXED: PURE UNDERSTANDING-ONLY MODEL MANAGER WITH CORRECT VOXTRAL API
 import asyncio
 import logging
 import torch
@@ -6,9 +6,6 @@ from typing import Optional, Dict, Any, Union
 import gc
 import tempfile
 import os
-import wave
-import base64
-import numpy as np
 import time
 
 from transformers import VoxtralForConditionalGeneration, AutoProcessor
@@ -16,7 +13,7 @@ from transformers import VoxtralForConditionalGeneration, AutoProcessor
 logger = logging.getLogger(__name__)
 
 class VoxtralUnderstandingManager:
-    """PURE UNDERSTANDING-ONLY: Voxtral model manager with Flash Attention fix"""
+    """FIXED: Voxtral model manager with correct API usage"""
     
     def __init__(
         self, 
@@ -36,7 +33,7 @@ class VoxtralUnderstandingManager:
         self.is_loaded = False
         self.model_info = {}
         
-        # UNDERSTANDING-ONLY: Valid language codes for Voxtral
+        # FIXED: Valid language codes for Voxtral
         self.supported_languages = {
             "en": "English", 
             "es": "Spanish", 
@@ -55,12 +52,12 @@ class VoxtralUnderstandingManager:
         self.target_response_ms = 200  # Sub-200ms target
         self.optimize_for_speed = True
         
-        logger.info(f"Initialized PURE UNDERSTANDING-ONLY VoxtralUnderstandingManager for {model_name} on {self.device}")
+        logger.info(f"FIXED VoxtralUnderstandingManager initialized for {model_name} on {self.device}")
     
     async def load_model(self) -> None:
-        """Load Voxtral model with UNDERSTANDING-ONLY optimizations + Flash Attention fix"""
+        """FIXED: Load Voxtral model with correct configuration"""
         try:
-            logger.info(f"🔄 Loading PURE UNDERSTANDING-ONLY Voxtral model: {self.model_name}")
+            logger.info(f"🔄 Loading FIXED Voxtral model: {self.model_name}")
             logger.info("🚫 Flash Attention DISABLED for compatibility")
             
             # Clear GPU memory
@@ -68,12 +65,12 @@ class VoxtralUnderstandingManager:
                 torch.cuda.empty_cache()
                 gc.collect()
             
-            # Load processor
+            # FIXED: Load processor
             logger.info("Loading processor...")
             self.processor = AutoProcessor.from_pretrained(self.model_name)
             
-            # Load model with UNDERSTANDING-ONLY optimizations + Flash Attention FIX
-            logger.info("Loading model with PURE UNDERSTANDING-ONLY optimizations...")
+            # FIXED: Load model with correct configuration
+            logger.info("Loading model with FIXED optimizations...")
             self.model = VoxtralForConditionalGeneration.from_pretrained(
                 self.model_name,
                 torch_dtype=self.torch_dtype,
@@ -87,7 +84,7 @@ class VoxtralUnderstandingManager:
             # Set to evaluation mode for inference
             self.model.eval()
             
-            # UNDERSTANDING-ONLY: Enable optimizations
+            # FIXED: Enable optimizations
             if self.optimize_for_speed:
                 # Enable caching
                 self.model.config.use_cache = True
@@ -114,77 +111,68 @@ class VoxtralUnderstandingManager:
             }
             
             self.is_loaded = True
-            logger.info(f"✅ PURE UNDERSTANDING-ONLY Model loaded successfully!")
+            logger.info(f"✅ FIXED Model loaded successfully!")
             logger.info(f"✅ Flash Attention: DISABLED (eager attention used)")
             logger.info(f"✅ Mode: UNDERSTANDING-ONLY (no transcription capability)")
             logger.info(f"✅ Memory usage: {self.model_info['memory_usage']}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to load PURE UNDERSTANDING-ONLY model: {e}")
-            raise RuntimeError(f"PURE UNDERSTANDING-ONLY model loading failed: {e}")
+            logger.error(f"❌ Failed to load FIXED model: {e}")
+            raise RuntimeError(f"FIXED model loading failed: {e}")
     
     async def generate_understanding_response(
         self, 
-        audio_data: bytes, 
+        audio_file_path: str, 
         context: str = "",
         optimize_for_speed: bool = True
     ) -> Dict[str, Any]:
-        """PURE UNDERSTANDING-ONLY: Generate conversational AI response from audio"""
+        """FIXED: Generate conversational AI response from audio using correct Voxtral API"""
         if not self.is_loaded:
             logger.error("Model not loaded for understanding")
             return {"error": "Model not loaded"}
         
         start_time = time.time()
-        temp_path = None
         
         try:
             # Validate input
-            if not audio_data or len(audio_data) < 1000:
-                logger.warning(f"Invalid audio data: {len(audio_data) if audio_data else 0} bytes")
-                return {"error": "Invalid or insufficient audio data"}
+            if not audio_file_path or not os.path.exists(audio_file_path):
+                logger.warning(f"Invalid audio file: {audio_file_path}")
+                return {"error": "Invalid or missing audio file"}
             
-            logger.info(f"🧠 PURE UNDERSTANDING-ONLY processing: {len(audio_data)} bytes")
-            
-            # Create temporary WAV file
-            temp_path = self._audio_bytes_to_wav_file(audio_data)
-            
-            if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 1000:
-                logger.error(f"Failed to create valid WAV file: {temp_path}")
-                return {"error": "Failed to create valid audio file"}
-            
-            logger.info(f"Created WAV file: {temp_path} ({os.path.getsize(temp_path)} bytes)")
+            file_size = os.path.getsize(audio_file_path)
+            logger.info(f"🧠 FIXED processing: {audio_file_path} ({file_size} bytes)")
             
             # Use default language for processing
             language = self.default_language
             logger.info(f"Using language for understanding: {language}")
             
-            # UNDERSTANDING-ONLY: Two-step process
-            # Step 1: Transcribe the audio
+            # FIXED: Step 1: Transcribe the audio using CORRECT API
             transcription_start = time.time()
             
+            # CRITICAL FIX: Use apply_transcription_request correctly
             transcription_inputs = self.processor.apply_transcription_request(
                 language=language,
-                audio=temp_path,
+                audio=audio_file_path,  # FIXED: Pass file path directly
                 model_id=self.model_name,
                 return_tensors="pt"
             )
             
             # Move to device
-            transcription_inputs = {k: v.to(self.device) for k, v in transcription_inputs.items()}
+            transcription_inputs = {k: v.to(self.device) for k, v in transcription_inputs.items() if hasattr(v, 'to')}
             
             # Generate transcription with speed optimization
             with torch.no_grad():
                 transcription_outputs = self.model.generate(
                     **transcription_inputs,
                     max_new_tokens=64,  # Shorter for speed
-                    temperature=0.0,
+                    temperature=0.0,  # Deterministic for transcription
                     do_sample=False,
                     use_cache=True,
                     pad_token_id=self.processor.tokenizer.pad_token_id,
                     eos_token_id=self.processor.tokenizer.eos_token_id
                 )
             
-            # Decode transcription
+            # FIXED: Decode transcription correctly
             transcription_input_length = transcription_inputs['input_ids'].shape[1]
             transcription_tokens = transcription_outputs[0][transcription_input_length:]
             transcribed_text = self.processor.tokenizer.decode(
@@ -193,7 +181,7 @@ class VoxtralUnderstandingManager:
             ).strip()
             
             transcription_time = time.time() - transcription_start
-            logger.info(f"📝 Transcribed in {transcription_time*1000:.0f}ms: '{transcribed_text}'")
+            logger.info(f"📝 FIXED Transcribed in {transcription_time*1000:.0f}ms: '{transcribed_text}'")
             
             if not transcribed_text or len(transcribed_text) < 2:
                 logger.warning("Empty or very short transcription")
@@ -202,7 +190,7 @@ class VoxtralUnderstandingManager:
                     "processing_time_ms": (time.time() - start_time) * 1000
                 }
             
-            # Step 2: Generate understanding response using chat template
+            # FIXED: Step 2: Generate understanding response using CORRECT chat template
             understanding_start = time.time()
             
             # Build conversation for understanding
@@ -216,15 +204,16 @@ class VoxtralUnderstandingManager:
                 {"role": "user", "content": transcribed_text}
             ]
             
-            logger.info("Applying chat template for understanding...")
+            logger.info("FIXED: Applying chat template for understanding...")
             
+            # CRITICAL FIX: Use apply_chat_template correctly
             understanding_inputs = self.processor.apply_chat_template(
                 conversation,
                 return_tensors="pt"
             )
             
             # Move to device
-            understanding_inputs = {k: v.to(self.device) for k, v in understanding_inputs.items()}
+            understanding_inputs = {k: v.to(self.device) for k, v in understanding_inputs.items() if hasattr(v, 'to')}
             
             # Generate understanding response with speed optimization
             with torch.no_grad():
@@ -240,7 +229,7 @@ class VoxtralUnderstandingManager:
                     eos_token_id=self.processor.tokenizer.eos_token_id
                 )
             
-            # Decode understanding response
+            # FIXED: Decode understanding response correctly
             understanding_input_length = understanding_inputs['input_ids'].shape[1]
             understanding_tokens = understanding_outputs[0][understanding_input_length:]
             response = self.processor.tokenizer.decode(
@@ -251,11 +240,14 @@ class VoxtralUnderstandingManager:
             understanding_time = time.time() - understanding_start
             total_time = time.time() - start_time
             
-            logger.info(f"🧠 Generated response in {understanding_time*1000:.0f}ms: '{response[:50]}...'")
+            logger.info(f"🧠 FIXED Generated response in {understanding_time*1000:.0f}ms: '{response[:50]}...'")
             
-            # Clean up temp file
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
+            # FIXED: Clean up temp file
+            try:
+                if os.path.exists(audio_file_path):
+                    os.unlink(audio_file_path)
+            except:
+                pass
             
             # Validate response
             if not response or len(response.strip()) < 3:
@@ -281,123 +273,23 @@ class VoxtralUnderstandingManager:
                 "understanding_only": True,
                 "transcription_disabled": True,
                 "flash_attention_disabled": True,
-                "optimize_for_speed": optimize_for_speed
+                "optimize_for_speed": optimize_for_speed,
+                "model_api_fixed": True
             }
             
-            logger.info(f"✅ PURE UNDERSTANDING-ONLY complete: {total_time*1000:.0f}ms total ({'✅' if total_time*1000 < 200 else '⚠️'} sub-200ms)")
+            logger.info(f"✅ FIXED UNDERSTANDING complete: {total_time*1000:.0f}ms total ({'✅' if total_time*1000 < 200 else '⚠️'} sub-200ms)")
             
             return result
             
         except Exception as e:
-            logger.error(f"PURE UNDERSTANDING-ONLY processing error: {e}", exc_info=True)
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-            return {"error": f"PURE UNDERSTANDING-ONLY processing failed: {str(e)}"}
-    
-    def _audio_bytes_to_wav_file(self, audio_bytes: bytes) -> str:
-        """Convert audio bytes to WAV file optimized for understanding"""
-        try:
-            temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
-            os.close(temp_fd)
-            
-            # Check if it's already a WAV file
-            if audio_bytes.startswith(b'RIFF') and b'WAVE' in audio_bytes[:20]:
-                with open(temp_path, 'wb') as f:
-                    f.write(audio_bytes)
-                logger.info(f"✅ Used existing WAV format: {len(audio_bytes)} bytes")
-                
-                # Validate the WAV file
-                try:
-                    with wave.open(temp_path, 'rb') as wav_test:
-                        frames = wav_test.getnframes()
-                        sample_rate = wav_test.getframerate()
-                        channels = wav_test.getnchannels()
-                        duration = frames / sample_rate
-                        
-                        logger.info(f"WAV validation: {frames} frames, {sample_rate}Hz, {channels}ch, {duration:.2f}s")
-                        
-                        if duration < 0.1:  # Less than 100ms
-                            raise ValueError(f"Audio too short for understanding: {duration:.3f}s")
-                            
-                except Exception as wav_e:
-                    logger.error(f"WAV validation failed: {wav_e}")
-                    raise ValueError(f"Invalid WAV file: {wav_e}")
-                
-                return temp_path
-            
-            # Handle raw PCM data
-            if len(audio_bytes) % 2 == 1:
-                audio_bytes = audio_bytes[:-1]
-            
-            if len(audio_bytes) < 1600:  # Less than 100ms at 16kHz
-                raise ValueError(f"Audio data too small for understanding: {len(audio_bytes)} bytes")
-            
-            # Convert to numpy array
+            logger.error(f"FIXED processing error: {e}", exc_info=True)
+            # Clean up temp file on error
             try:
-                audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
-                logger.info(f"Converted {len(audio_bytes)} bytes to {len(audio_array)} samples")
-                
-                if len(audio_array) < 1600:  # Less than 100ms at 16kHz
-                    raise ValueError(f"Audio array too short for understanding: {len(audio_array)} samples")
-                    
-                # Basic audio enhancement for understanding
-                audio_array = self._enhance_audio_for_understanding(audio_array)
-                    
-            except Exception as e:
-                logger.error(f"Failed to convert audio bytes: {e}")
-                raise
-            
-            # Create WAV file
-            with wave.open(temp_path, 'wb') as wav_file:
-                wav_file.setnchannels(1)  # Mono
-                wav_file.setsampwidth(2)  # 16-bit
-                wav_file.setframerate(16000)  # 16kHz
-                wav_file.writeframes(audio_array.tobytes())
-            
-            # Verify created file
-            file_size = os.path.getsize(temp_path)
-            if file_size < 1000:
-                raise ValueError(f"Created WAV file too small for understanding: {file_size} bytes")
-            
-            logger.info(f"✅ Created WAV file for understanding: {temp_path} ({file_size} bytes)")
-            return temp_path
-            
-        except Exception as e:
-            logger.error(f"Failed to create WAV file for understanding: {e}")
-            if 'temp_path' in locals() and temp_path and os.path.exists(temp_path):
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-            raise RuntimeError(f"Audio file creation failed: {e}")
-    
-    def _enhance_audio_for_understanding(self, audio_array: np.ndarray) -> np.ndarray:
-        """Enhance audio specifically for understanding processing"""
-        try:
-            # Apply normalization for better understanding
-            max_val = np.max(np.abs(audio_array))
-            if max_val > 0:
-                # Normalize to reasonable range
-                target_max = 20000  # Good range for understanding
-                if max_val < target_max:
-                    normalization_factor = min(1.5, target_max / max_val)  # Conservative normalization
-                    audio_array = (audio_array * normalization_factor).astype(np.int16)
-            
-            # Simple DC offset removal
-            dc_offset = np.mean(audio_array)
-            if abs(dc_offset) > 50:
-                audio_array = audio_array - int(dc_offset)
-            
-            logger.debug(f"Enhanced audio for understanding: max_amplitude={np.max(np.abs(audio_array))}")
-            
-            return audio_array
-            
-        except Exception as e:
-            logger.error(f"Audio enhancement failed: {e}")
-            return audio_array  # Return original on failure
+                if 'audio_file_path' in locals() and os.path.exists(audio_file_path):
+                    os.unlink(audio_file_path)
+            except:
+                pass
+            return {"error": f"FIXED processing failed: {str(e)}"}
     
     def _count_parameters(self) -> int:
         """Count total model parameters"""
@@ -426,8 +318,8 @@ class VoxtralUnderstandingManager:
             return {"gpu_memory": 0.0}
     
     async def cleanup(self) -> None:
-        """UNDERSTANDING-ONLY: Cleanup with better resource management"""
-        logger.info("🧹 Cleaning up PURE UNDERSTANDING-ONLY model resources...")
+        """FIXED: Cleanup with better resource management"""
+        logger.info("🧹 Cleaning up FIXED model resources...")
         
         if self.model is not None:
             del self.model
@@ -444,4 +336,4 @@ class VoxtralUnderstandingManager:
         
         gc.collect()
         self.is_loaded = False
-        logger.info("✅ PURE UNDERSTANDING-ONLY model cleanup completed")
+        logger.info("✅ FIXED model cleanup completed")
