@@ -103,11 +103,49 @@ async def health_check():
 
 @app.get("/model/info")
 async def model_info():
-    if not model_manager or not model_manager.is_loaded:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-    info = model_manager.model_info.copy()
-    info.update({"target_response_ms": settings.TARGET_RESPONSE_MS})
-    return info
+    """Get model information for the frontend"""
+    try:
+        if not model_manager or not model_manager.is_loaded:
+            raise HTTPException(status_code=503, detail="Model not loaded")
+        
+        info = {
+            "model_name": settings.MODEL_NAME,
+            "device": str(settings.DEVICE),
+            "model_size": "3B parameters",
+            "flash_attention_status": "DISABLED (compatibility fix)" if not settings.USE_FLASH_ATTENTION else "ENABLED",
+            "gap_detection_ms": settings.GAP_THRESHOLD_MS,
+            "target_response_ms": settings.TARGET_RESPONSE_MS,
+            "supported_languages": ["English", "Spanish", "French", "Portuguese", "Hindi", "German", "Dutch", "Italian"],
+            "understanding_only": True,
+            "transcription_disabled": True,
+            "features": ["Conversational AI", "Context Memory", "WebRTC VAD", "Gap Detection"],
+            "audio_config": {
+                "sample_rate": settings.AUDIO_SAMPLE_RATE,
+                "channels": settings.AUDIO_CHANNELS,
+                "gap_threshold_ms": settings.GAP_THRESHOLD_MS,
+                "min_speech_duration_ms": settings.MIN_SPEECH_DURATION_MS,
+                "max_speech_duration_ms": settings.MAX_SPEECH_DURATION_MS
+            }
+        }
+        return info
+    except Exception as e:
+        logger.error(f"Model info error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get model info: {str(e)}")
+
+@app.get("/connections")
+async def connections_info():
+    """Get WebSocket connections information"""
+    try:
+        stats = ws_manager.get_connection_stats()
+        return {
+            "total_connections": stats["total_connections"],
+            "connections_by_type": stats.get("connections_by_type", {}),
+            "max_connections": settings.MAX_CONCURRENT_CONNECTIONS,
+            "timestamp": get_system_info()["timestamp"]
+        }
+    except Exception as e:
+        logger.error(f"Connections info error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.websocket("/ws/understand")
 async def websocket_understand(websocket: WebSocket):
@@ -116,27 +154,86 @@ async def websocket_understand(websocket: WebSocket):
 
     try:
         while not shutdown_event.is_set():
-            data = await websocket.receive_bytes()
-            ws_manager.increment_received(websocket)
-            if len(data) < 50:
-                # explicit no-speech feedback after repeated small packets
-                await websocket.send_json({"type":"no_speech","message":"No speech detected","understanding_only":True})
-                continue
+            try:
+                data = await asyncio.wait_for(websocket.receive_bytes(), timeout=30.0)
+                ws_manager.increment_received(websocket)
+                
+                if len(data) < 50:
+                    # Send explicit feedback for very small packets
+                    await websocket.send_json({
+                        "type": "audio_feedback",
+                        "message": "Very small audio packet received",
+                        "understanding_only": True,
+                        "packet_size": len(data)
+                    })
+                    continue
 
-            result = await audio_processor.process_audio_understanding(data, websocket)
-            if result.get("speech_complete"):
-                # Process through model and send final response
-                response = await model_manager.understand_audio({
-                    "audio": result["audio_data"],
-                    "text": result.get("transcribed_text_request", "")
+                # Process audio through the understanding pipeline
+                result = await audio_processor.process_audio_understanding(data, websocket)
+                
+                if result.get("speech_complete"):
+                    # Process through model and send final response
+                    logger.info(f"Processing complete speech segment ({len(result.get('audio_data', b''))} bytes)")
+                    
+                    try:
+                        response = await model_manager.understand_audio({
+                            "audio": result["audio_data"],
+                            "text": result.get("text", "Listen to this audio and provide a helpful response.")
+                        })
+                        
+                        # Add conversation turn
+                        if "response" in response:
+                            conversation_manager.add_turn(
+                                websocket=websocket,
+                                transcription="[Audio input]",
+                                response=response["response"],
+                                audio_duration=result.get("duration_ms", 0) / 1000.0,
+                                mode="understand"
+                            )
+                        
+                        await ws_manager.send_personal_message(response, websocket)
+                        
+                    except Exception as e:
+                        logger.error(f"Model inference error: {e}")
+                        error_response = {
+                            "type": "understanding",
+                            "error": f"Model inference failed: {str(e)}",
+                            "timestamp": asyncio.get_event_loop().time()
+                        }
+                        await ws_manager.send_personal_message(error_response, websocket)
+                else:
+                    # Send intermediate feedback
+                    if result.get("audio_received"):
+                        feedback = {
+                            "type": "audio_feedback",
+                            "speech_detected": result.get("speech_detected", False),
+                            "duration_ms": result.get("duration_ms", 0),
+                            "silence_duration_ms": result.get("silence_duration_ms", 0),
+                            "remaining_to_gap_ms": max(0, settings.GAP_THRESHOLD_MS - result.get("silence_duration_ms", 0)),
+                            "understanding_only": True
+                        }
+                        await ws_manager.send_personal_message(feedback, websocket)
+
+            except asyncio.TimeoutError:
+                # Send keepalive
+                await websocket.send_json({
+                    "type": "keepalive",
+                    "message": "WebSocket connection active",
+                    "timestamp": asyncio.get_event_loop().time()
                 })
-                await ws_manager.send_personal_message(response, websocket)
-            else:
-                # intermediate feedback
-                await ws_manager.send_personal_message(result, websocket)
+                continue
+            except Exception as e:
+                logger.error(f"Error processing WebSocket message: {e}")
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Processing error: {str(e)}",
+                    "understanding_only": True
+                })
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
     finally:
         conversation_manager.cleanup_conversation(websocket)
         audio_processor.cleanup_connection(websocket)
