@@ -33,13 +33,13 @@ class Settings(BaseSettings):
     AUDIO_SAMPLE_RATE: int = 16000
     AUDIO_CHANNELS: int = 1
     GAP_THRESHOLD_MS: int = 300  # 0.3 second gap detection
-    MIN_SPEECH_DURATION_MS: int = 500  # Minimum 0.5 seconds
+    MIN_SPEECH_DURATION_MS: int = 300  # Minimum 0.3 seconds (same as gap)
     MAX_SPEECH_DURATION_MS: int = 30000  # Maximum 30 seconds
     
     # UNDERSTANDING-ONLY: Model Generation Settings
     TARGET_RESPONSE_MS: int = 200  # Sub-200ms response target
     UNDERSTANDING_MAX_TOKENS: int = 200  # Reduced for speed
-    UNDERSTANDING_TEMPERATURE: float = 0.3  # Balanced creativity
+    UNDERSTANDING_TEMPERATURE: float = 0.2  # Focused responses
     UNDERSTANDING_TOP_P: float = 0.9  # Focused responses
     
     # Performance Optimization - UNDERSTANDING-ONLY
