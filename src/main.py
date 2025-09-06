@@ -158,7 +158,7 @@ async def websocket_understand(websocket: WebSocket):
                 data = await asyncio.wait_for(websocket.receive_bytes(), timeout=30.0)
                 ws_manager.increment_received(websocket)
                 
-                if len(data) < 50:
+                if len(data) < 10:
                     # Send explicit feedback for very small packets
                     await websocket.send_json({
                         "type": "audio_feedback",
@@ -173,46 +173,61 @@ async def websocket_understand(websocket: WebSocket):
                 
                 if result.get("speech_complete"):
                     # Process through model and send final response
-                    logger.info(f"Processing complete speech segment ({len(result.get('audio_data', b''))} bytes)")
+                    audio_data = result.get("audio_data", b"")
                     
-                    try:
-                        response = await model_manager.understand_audio({
-                            "audio": result["audio_data"],
-                            "text": result.get("text", "Listen to this audio and provide a helpful response.")
-                        })
+                    if len(audio_data) > 100:  # Ensure we have substantial audio data
+                        logger.info(f"Processing complete speech segment ({len(audio_data)} bytes)")
                         
-                        # Add conversation turn
-                        if "response" in response:
+                        try:
+                            response = await model_manager.understand_audio({
+                                "audio": audio_data,
+                                "text": "Listen to this audio and provide a helpful response."
+                            })
+                            
+                            # Add conversation turn
                             conversation_manager.add_turn(
                                 websocket=websocket,
                                 transcription="[Audio input]",
-                                response=response["response"],
+                                response=response.get("response", ""),
                                 audio_duration=result.get("duration_ms", 0) / 1000.0,
                                 mode="understand"
                             )
-                        
-                        await ws_manager.send_personal_message(response, websocket)
-                        
-                    except Exception as e:
-                        logger.error(f"Model inference error: {e}")
-                        error_response = {
-                            "type": "understanding",
-                            "error": f"Model inference failed: {str(e)}",
-                            "timestamp": asyncio.get_event_loop().time()
-                        }
-                        await ws_manager.send_personal_message(error_response, websocket)
+                            
+                            await ws_manager.send_personal_message(response, websocket)
+                            
+                        except Exception as e:
+                            logger.error(f"Model inference error: {e}")
+                            error_response = {
+                                "type": "understanding",
+                                "error": f"Model inference failed: {str(e)}",
+                                "timestamp": asyncio.get_event_loop().time()
+                            }
+                            await ws_manager.send_personal_message(error_response, websocket)
+                    else:
+                        logger.warning(f"Speech segment too small ({len(audio_data)} bytes), skipping processing")
+                        await websocket.send_json({
+                            "type": "audio_feedback",
+                            "message": "Speech segment too small for processing",
+                            "understanding_only": True
+                        })
                 else:
-                    # Send intermediate feedback
+                    # Send intermediate feedback with better information
                     if result.get("audio_received"):
+                        remaining_ms = max(0, settings.GAP_THRESHOLD_MS - result.get("silence_duration_ms", 0))
+                        
                         feedback = {
                             "type": "audio_feedback",
                             "speech_detected": result.get("speech_detected", False),
                             "duration_ms": result.get("duration_ms", 0),
                             "silence_duration_ms": result.get("silence_duration_ms", 0),
-                            "remaining_to_gap_ms": max(0, settings.GAP_THRESHOLD_MS - result.get("silence_duration_ms", 0)),
-                            "understanding_only": True
+                            "remaining_to_gap_ms": remaining_ms,
+                            "understanding_only": True,
+                            "buffer_size": len(data)
                         }
-                        await ws_manager.send_personal_message(feedback, websocket)
+                        
+                        # Only send feedback every few messages to avoid spam
+                        if int(asyncio.get_event_loop().time() * 10) % 5 == 0:  # Every 500ms
+                            await ws_manager.send_personal_message(feedback, websocket)
 
             except asyncio.TimeoutError:
                 # Send keepalive
